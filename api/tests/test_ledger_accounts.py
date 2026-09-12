@@ -197,3 +197,16 @@ def test_ledger_master_returns_calculated_closing_not_opening(ledgers):
     assert owner["closing_side"] == "Dr"
     assert Decimal(lessee["closing_amount"]) == Decimal("55")
     assert lessee["closing_side"] == "Dr"
+
+@pytest.mark.skipif(__import__("sys").platform == "win32", reason="WeasyPrint native libraries are verified in Docker")
+def test_invoice_pdf_download_is_formal_and_scoped(ledgers):
+    client,headers,factory,rows,_=ledgers
+    allowed=rows[0][0]['id'];private=rows[2][0]['id']
+    with factory() as session:
+        allowed_id=session.scalar(select(Invoice.id).where(Invoice.party_id==allowed))
+        private_id=session.scalar(select(Invoice.id).where(Invoice.party_id==private))
+    response=client.get(f'/api/portal/invoices/{allowed_id}/pdf',headers=headers['member'])
+    assert response.status_code==200 and response.content.startswith(b'%PDF')
+    assert response.headers['content-type']=='application/pdf'
+    assert 'attachment' in response.headers['content-disposition']
+    assert client.get(f'/api/portal/invoices/{private_id}/pdf',headers=headers['member']).status_code==403

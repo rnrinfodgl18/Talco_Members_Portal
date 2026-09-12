@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import Numeric, cast, func, literal, select, union_all
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from app.models.auth import User
 from app.models.entities import ChargeHead, Invoice, InvoiceRevision, Party, Receipt, Tannery, TanneryPartyLink
 from app.security import current_user
 from app.services.scope import scoped_query, user_scope
+from app.services.invoice_pdf import invoice_pdf
 
 router = APIRouter(prefix='/api/portal', tags=['portal'])
 
@@ -155,6 +156,22 @@ def invoice_detail(invoice_id: int, user: User = Depends(current_user), session:
             'revisions': [{'date': row.revised_at.isoformat(), 'reason': row.reason,
                            'revised_by': row.revised_by} for row in revisions]}
 
+
+
+@router.get('/invoices/{invoice_id}/pdf')
+def invoice_download(invoice_id: int, user: User = Depends(current_user), session: Session = Depends(get_db)):
+    existing = session.get(Invoice, invoice_id)
+    if not existing:
+        raise HTTPException(404, 'Invoice not found')
+    found = session.scalar(scoped_query(select(Invoice).where(Invoice.id == invoice_id,
+        Invoice.is_cancelled.is_(False)), Invoice, user))
+    if not found:
+        raise HTTPException(403, 'Invoice is outside your account access')
+    content = invoice_pdf(session, found)
+    safe = ''.join(ch for ch in found.voucher_no if ch.isalnum() or ch in '-_') or str(found.id)
+    return Response(content, media_type='application/pdf', headers={
+        'Content-Disposition': f'attachment; filename="TALCO-Invoice-{safe}.pdf"',
+        'Cache-Control': 'private, no-store'})
 
 @router.get('/receipts')
 def receipts(tannery_id: int | None = None, party_id: int | None = None,
