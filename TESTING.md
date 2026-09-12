@@ -149,3 +149,17 @@ Test mudinjadhum: **VPS ledger closing, formal print and hamburger menu test pas
 Current VPS network check: configured port 467 timeout; ports 465 and 587 reachable. Security mode-ku match aagura correct port-ai use pannavum.
 
 Test mudinjadhum: **VPS SMTP test pass**
+## 2026-09-12 - Email invitation, password setup and persistent login
+
+1. Admin → **Users & Account Access**-la real member email, role, ledger access select panni **Create Invitation** press pannunga.
+2. Admin screen/API-la setup token kaattakoodadhu; **Invitation email sent** message varanum.
+3. Member inbox-la TALCO invitation mail varanum. Link 48 hours valid; link click pannina TALCO logo, readonly login email, New password, Confirm password fields varanum.
+4. Password mismatch-na save aagakoodadhu. Valid password set pannina direct-a member dashboard open aaganum.
+5. Same invitation link second time open pannina expired/used message varanum.
+6. Pending user-ku admin user list-la **Resend invitation** use pannina old link invalid aagi new mail varanum.
+7. Login page-la **Forgot password?** open panni registered email submit pannina reset email varanum. Unknown email-kum same neutral response varanum.
+8. Reset link 1 hour valid. Password reset pannina old logged-in sessions revoke aagi, current device new session-oda direct login aaganum.
+9. Browser/PWA close-open, phone restart pannalum login continue aaganum. Manual logout press pannina mattum session close aaganum.
+10. Invitation/reset delivery failure-na admin **Notification delivery log**-la exact SMTP reason varanum.
+
+Test mudinjadhum: **VPS email invitation and persistent login test pass**

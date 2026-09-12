@@ -60,6 +60,7 @@ def set_grants(session: Session, user: User, grants: list[LedgerGrant], actor: U
 @router.get('')
 def list_users(session: Session = Depends(get_db)):
     return [{'id': user.id, 'email': user.email, 'role': user.role, 'active': user.active,
+             'must_set_password': user.must_set_password, 'email_verified': bool(user.email_verified_at),
              'ledger_access_configured': user.ledger_access_configured,
              'tannery_id': user.tannery_id, 'party_id': user.party_id,
              'accounts': [{'party_id': grant.party_id, 'relationship_role': grant.relationship_role}

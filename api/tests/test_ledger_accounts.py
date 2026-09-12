@@ -110,19 +110,48 @@ def test_validation_permissions_and_access_replacement(ledgers):
     assert len(client.get('/api/portal/accounts',headers=headers['member']).json())==2
 
 
-def test_invite_one_login_with_owner_and_lessee_accounts(ledgers):
-    client,headers,_,rows,uid=ledgers
+def test_invite_one_login_with_owner_and_lessee_accounts(ledgers, monkeypatch):
+    client,headers,factory,rows,uid=ledgers
+    sent=[]
+    monkeypatch.setattr('app.routers.auth.send_email',lambda session,user,subject,body,**kwargs: sent.append((user.email,subject,body)) or True)
     data={'email':'mixed@example.test','role':'member','accounts':[{'party_id':rows[0][0]['id'],'relationship_role':'owner'},
         {'party_id':rows[1][0]['id'],'relationship_role':'lessee'}]}
     invited=client.post('/api/auth/invite',headers=headers['talco_admin'],json=data)
     assert invited.status_code==200,invited.text
-    setup=client.post('/api/auth/set-password',json={'token':invited.json()['setup_token'],'password':'Example-password-2026'})
+    assert invited.json()['email_delivery']=='sent' and 'setup_token' not in invited.json()
+    assert sent[0][0]=='mixed@example.test' and '?invite=' in sent[0][2]
+    raw=sent[0][2].split('?invite=',1)[1].split()[0]
+    details=client.get('/api/auth/action',params={'token':raw})
+    assert details.json()['email']=='mixed@example.test' and details.json()['purpose']=='invite'
+    setup=client.post('/api/auth/set-password',json={'token':raw,'password':'Example-password-2026'})
     assert setup.status_code==200,setup.text
+    assert client.get('/api/auth/action',params={'token':raw}).status_code==400
     token=setup.json()['access_token']
     result=client.get('/api/portal/accounts',headers={'Authorization':f'Bearer {token}'})
     assert len(result.json())==2
+    with factory() as session:
+        from app.models.auth import AuthToken
+        import hashlib
+        from datetime import datetime, timezone
+        session_token=session.scalar(select(AuthToken).where(AuthToken.token_hash==hashlib.sha256(token.encode()).hexdigest()))
+        assert (session_token.expires_at.replace(tzinfo=None)-datetime.now(timezone.utc).replace(tzinfo=None)).days>360
     assert client.post('/api/auth/invite',headers=headers['talco_admin'],json=data).status_code==409
 
+
+def test_forgot_password_sends_one_time_link_without_exposing_account(ledgers, monkeypatch):
+    client,headers,_,rows,uid=ledgers
+    sent=[]
+    monkeypatch.setattr('app.routers.auth.send_email',lambda session,user,subject,body,**kwargs: sent.append(body) or True)
+    known=client.post('/api/auth/reset-request',json={'email':'member@test.local'})
+    unknown=client.post('/api/auth/reset-request',json={'email':'missing@example.test'})
+    assert known.status_code==unknown.status_code==200
+    assert known.json()==unknown.json() and 'reset_token' not in known.json()
+    raw=sent[0].split('?reset=',1)[1].split()[0]
+    assert client.get('/api/auth/action',params={'token':raw}).json()['email']=='member@test.local'
+    changed=client.post('/api/auth/reset-password',json={'token':raw,'password':'Replacement-password-2026'})
+    assert changed.status_code==200 and changed.json()['access_token']
+    assert client.get('/api/auth/action',params={'token':raw}).status_code==400
+    assert client.get('/api/auth/me',headers=headers['member']).status_code==401
 
 def test_legacy_login_keeps_existing_scope(ledgers):
     client,headers,factory,rows,uid=ledgers

@@ -12,6 +12,7 @@ from app.db import get_db
 from app.models.auth import AuthToken, User
 
 bearer = HTTPBearer(auto_error=False)
+SESSION_HOURS = 24 * 365
 
 
 def hash_password(password: str) -> str:
@@ -41,14 +42,22 @@ def issue_token(session: Session, user: User, purpose: str = "session", hours: i
     return raw
 
 
-def consume_token(session: Session, raw: str, purpose: str) -> User:
+def token_user(session: Session, raw: str, purposes: set[str]) -> tuple[AuthToken, User]:
     digest = hashlib.sha256(raw.encode()).hexdigest()
-    token = session.scalar(select(AuthToken).where(AuthToken.token_hash == digest, AuthToken.purpose == purpose))
+    token = session.scalar(select(AuthToken).where(AuthToken.token_hash == digest,
+                                                    AuthToken.purpose.in_(purposes)))
     now = datetime.now(timezone.utc)
     if not token or token.used_at or token.expires_at.replace(tzinfo=timezone.utc) <= now:
-        raise HTTPException(400, "Token is invalid or expired")
-    token.used_at = now
+        raise HTTPException(400, "This link is invalid or has expired")
     user = session.get(User, token.user_id)
+    if not user or not user.active:
+        raise HTTPException(400, "This account is no longer active")
+    return token, user
+
+
+def consume_token(session: Session, raw: str, purpose: str) -> User:
+    token, user = token_user(session, raw, {purpose})
+    token.used_at = datetime.now(timezone.utc)
     session.commit()
     return user
 

@@ -1,17 +1,17 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.models.auth import AuthToken, ROLES, User
-from app.security import consume_token, current_user, hash_password, issue_token, require_roles, verify_password
-from app.config import get_settings
-from app.services.notifications import send_email
-
 from app.routers.user_access import LedgerGrant, set_grants, validate_grants
+from app.security import (SESSION_HOURS, consume_token, current_user, hash_password, issue_token,
+                          require_roles, token_user, verify_password)
+from app.services.notifications import send_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -33,8 +33,26 @@ class TokenPassword(BaseModel):
     token: str
     password: str
 
+
 class VerifyToken(BaseModel):
     token: str
+
+
+class ResetRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+def send_invitation(session: Session, user: User) -> bool:
+    session.query(AuthToken).filter(AuthToken.user_id == user.id, AuthToken.purpose == "invite",
+                                    AuthToken.used_at.is_(None)).update({"used_at": datetime.now(timezone.utc)})
+    session.commit()
+    raw = issue_token(session, user, "invite", 48)
+    link = get_settings().public_url.rstrip("/") + "/?invite=" + raw
+    delivered = send_email(session, user, "Set up your TALCO portal account",
+        "Your TALCO portal login has been created.\n\nSet your password using this secure link:\n" + link +
+        "\n\nThis one-time link expires in 48 hours.", force=True)
+    session.commit()
+    return delivered
 
 
 @router.post("/bootstrap")
@@ -47,7 +65,7 @@ def bootstrap(request: Credentials, session: Session = Depends(get_db)):
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
     session.add(user); session.commit(); session.refresh(user)
-    return {"access_token": issue_token(session, user), "user": serialize_user(user)}
+    return {"access_token": issue_token(session, user, hours=SESSION_HOURS), "user": serialize_user(user)}
 
 
 @router.post("/login")
@@ -57,7 +75,7 @@ def login(request: Credentials, session: Session = Depends(get_db)):
         raise HTTPException(401, "Invalid email or password")
     if user.must_set_password:
         raise HTTPException(403, "Use your invitation link to set a password")
-    return {"access_token": issue_token(session, user), "user": serialize_user(user)}
+    return {"access_token": issue_token(session, user, hours=SESSION_HOURS), "user": serialize_user(user)}
 
 
 @router.post("/logout", status_code=204)
@@ -85,24 +103,48 @@ def invite(request: InviteRequest, actor: User = Depends(require_roles("talco_ad
         raise HTTPException(409, "Email already invited")
     if request.accounts is not None:
         validate_grants(session, request.accounts)
-    user = User(email=request.email.lower(), role=request.role, tannery_id=request.tannery_id,
+    user = User(email=request.email.strip().lower(), role=request.role, tannery_id=request.tannery_id,
                 party_id=request.party_id, must_set_password=True)
     session.add(user); session.flush()
     if request.accounts is not None:
         set_grants(session, user, request.accounts, actor)
     session.commit(); session.refresh(user)
-    return {"user": serialize_user(user), "setup_token": issue_token(session, user, "invite", 48)}
+    delivered = send_invitation(session, user)
+    return {"user": serialize_user(user), "email_delivery": "sent" if delivered else "failed"}
+
+
+@router.post("/invite/{user_id}/resend")
+def resend_invite(user_id: int, _: User = Depends(require_roles("talco_admin")),
+                  session: Session = Depends(get_db)):
+    user = session.get(User, user_id)
+    if not user or not user.active:
+        raise HTTPException(404, "User not found")
+    if not user.must_set_password:
+        raise HTTPException(409, "This user has already set a password")
+    delivered = send_invitation(session, user)
+    if not delivered:
+        raise HTTPException(502, "Invitation email could not be sent. Check the delivery log and SMTP settings.")
+    return {"status": "sent"}
+
+
+@router.get("/action")
+def action_details(token: str, session: Session = Depends(get_db)):
+    auth_token, user = token_user(session, token, {"invite", "reset"})
+    return {"email": user.email, "purpose": auth_token.purpose,
+            "expires_at": auth_token.expires_at.isoformat()}
 
 
 @router.post("/set-password")
 def set_password(request: TokenPassword, session: Session = Depends(get_db)):
     user = consume_token(session, request.token, "invite")
-    try: user.password_hash = hash_password(request.password)
-    except ValueError as error: raise HTTPException(422, str(error)) from error
-    user.must_set_password = False; session.commit()
-    return {"access_token": issue_token(session, user), "user": serialize_user(user)}
-
-
+    try:
+        user.password_hash = hash_password(request.password)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    user.must_set_password = False
+    user.email_verified_at = user.email_verified_at or datetime.now(timezone.utc)
+    session.commit()
+    return {"access_token": issue_token(session, user, hours=SESSION_HOURS), "user": serialize_user(user)}
 
 
 @router.post("/verification-email")
@@ -115,7 +157,7 @@ def verification_email(user: User = Depends(current_user), session: Session = De
         "Confirm this email address for TALCO portal notifications:\n\n" + link +
         "\n\nThis link expires in 24 hours.")
     session.commit()
-    return {"status": "sent"}
+    return {"status": "sent" if delivered else "failed"}
 
 
 @router.post("/verify-email")
@@ -124,22 +166,40 @@ def verify_email(request: VerifyToken, session: Session = Depends(get_db)):
     user.email_verified_at = datetime.now(timezone.utc)
     session.commit()
     return {"status": "verified"}
+
+
 @router.post("/reset-request")
-def reset_request(email: str, session: Session = Depends(get_db)):
-    user = session.scalar(select(User).where(User.email == email.lower(), User.active.is_(True)))
-    return {"reset_token": issue_token(session, user, "reset", 1) if user else None}
+def reset_request(request: ResetRequest, session: Session = Depends(get_db)):
+    user = session.scalar(select(User).where(User.email == request.email.strip().lower(), User.active.is_(True)))
+    if user:
+        session.query(AuthToken).filter(AuthToken.user_id == user.id, AuthToken.purpose == "reset",
+                                        AuthToken.used_at.is_(None)).update({"used_at": datetime.now(timezone.utc)})
+        session.commit()
+        raw = issue_token(session, user, "reset", 1)
+        link = get_settings().public_url.rstrip("/") + "/?reset=" + raw
+        send_email(session, user, "Reset your TALCO portal password",
+            "A password reset was requested for your TALCO portal login.\n\nSet a new password using this secure link:\n" + link +
+            "\n\nThis one-time link expires in 1 hour. If you did not request this, ignore this email.", force=True)
+        session.commit()
+    return {"status": "accepted", "message": "If this email has an active account, a reset link has been sent."}
 
 
 @router.post("/reset-password")
 def reset_password(request: TokenPassword, session: Session = Depends(get_db)):
     user = consume_token(session, request.token, "reset")
-    try: user.password_hash = hash_password(request.password)
-    except ValueError as error: raise HTTPException(422, str(error)) from error
-    user.must_set_password = False; session.commit()
-    return {"status": "password_reset"}
+    try:
+        user.password_hash = hash_password(request.password)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    user.must_set_password = False
+    session.query(AuthToken).filter(AuthToken.user_id == user.id, AuthToken.purpose == "session",
+                                    AuthToken.used_at.is_(None)).update({"used_at": datetime.now(timezone.utc)})
+    session.commit()
+    return {"status": "password_reset", "access_token": issue_token(session, user, hours=SESSION_HOURS),
+            "user": serialize_user(user)}
 
 
 def serialize_user(user: User) -> dict:
-    return {"id": user.id, "email": user.email, "display_name": user.display_name, "phone": user.phone, "role": user.role,
-            "tannery_id": user.tannery_id, "party_id": user.party_id,
+    return {"id": user.id, "email": user.email, "display_name": user.display_name, "phone": user.phone,
+            "role": user.role, "tannery_id": user.tannery_id, "party_id": user.party_id,
             "must_set_password": user.must_set_password, "email_verified": bool(user.email_verified_at)}
