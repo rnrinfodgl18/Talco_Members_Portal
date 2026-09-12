@@ -1,0 +1,46 @@
+import { FormEvent, useEffect, useState } from "react";
+
+type Head = { id: number; name: string; gst_rate: string };
+type Batch = { id: number; file_name: string; status: string; period_start: string; uploaded_at: string };
+type Change = {existing:string|number;replacement:string|number};
+type Row = {id:number;row_number:number;party:string;status:string;gross:string;match_method:string;tax_errors:string[];warnings?:string[];source_format?:string;voucher_type:string;voucher_no?:string;source_guid?:string;charge_ledger?:string;is_cancelled:boolean;bill_allocations:{reference:string;type:string;amount:string}[];correction?:{entity_type:string;entity_id:number;changes:Record<string,Change>}};
+type Detail = Batch & { row_count:number;matched:number;queued:number;errors:number;corrections:number;duplicates:number;cancelled:number;allocations:number;warnings:number;base_total:string;gross_total:string;rows:Row[] };
+const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const money = (value: string|number) => new Intl.NumberFormat("en-IN", { style:"currency", currency:"INR" }).format(Number(value));
+const labels:Record<string,string>={invoice_date:"Invoice date",base_amount:"Taxable amount",cgst:"CGST",sgst:"SGST",gross_amount:"Total",charge_head_id:"Charge head",tannery_id:"Tannery",party_id:"Ledger account"};
+
+export default function ImportsPage() {
+  const [heads,setHeads]=useState<Head[]>([]),[batches,setBatches]=useState<Batch[]>([]);
+  const [detail,setDetail]=useState<Detail|null>(null),[file,setFile]=useState<File|null>(null);
+  const [head,setHead]=useState(""),[period,setPeriod]=useState("2026-08-01");
+  const [message,setMessage]=useState(""),[busy,setBusy]=useState(false);
+  const [reasons,setReasons]=useState<Record<number,string>>({});
+  const refresh=()=>fetch(`${apiUrl}/api/imports`).then(r=>r.json()).then(setBatches);
+  useEffect(()=>{fetch(`${apiUrl}/api/imports/charge-heads`).then(r=>r.json()).then(setHeads);refresh()},[]);
+  const open=(id:number)=>fetch(`${apiUrl}/api/imports/${id}`).then(r=>r.json()).then(setDetail);
+  const upload=async(event:FormEvent)=>{
+    event.preventDefault();if(!file)return;setBusy(true);setMessage("");
+    const form=new FormData();form.append("file",file);form.append("period_start",period);form.append("source_type","auto");if(head)form.append("charge_head_id",head);
+    const response=await fetch(`${apiUrl}/api/imports`,{method:"POST",body:form});const body=await response.json();
+    if(!response.ok)setMessage(body.detail??"Upload failed");else{setDetail(body);setMessage(`Batch #${body.id} ready for review`);refresh()}setBusy(false);
+  };
+  const post=async()=>{if(!detail)return;setBusy(true);const response=await fetch(`${apiUrl}/api/imports/${detail.id}/post`,{method:"POST",headers:{"X-TALCO-ROLE":"talco_admin"}});const body=await response.json();if(response.ok){setDetail(body);refresh()}else setMessage(body.detail);setBusy(false)};
+  const decide=async(row:Row,approve:boolean)=>{
+    if(!detail)return;const reason=(reasons[row.id]??"").trim();
+    if(approve&&!reason){setMessage("Enter a reason before approving this Tally change.");return}
+    setBusy(true);setMessage("");
+    const response=await fetch(`${apiUrl}/api/imports/${detail.id}/corrections/${row.id}`,{method:"POST",headers:{"Content-Type":"application/json","X-TALCO-ROLE":"talco_admin"},body:JSON.stringify({approve,reason})});
+    const body=await response.json();if(response.ok){setDetail(body);setMessage(approve?"Tally change approved and applied.":"Existing transaction kept.");refresh()}else setMessage(body.detail??"Decision failed");setBusy(false);
+  };
+  return <section className="mx-auto max-w-7xl p-6"><div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+    <div><form onSubmit={upload} className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><h2 className="text-xl font-bold">Import transactions</h2><p className="mt-2 text-sm text-slate-400">Excel is recommended. Tally XML is also supported.</p><label className="mt-5 block text-sm text-slate-400">Excel or XML file<input required type="file" accept=".xlsx,.xlsm,.xml" onChange={e=>setFile(e.target.files?.[0]??null)} className="mt-2 block w-full rounded-xl bg-slate-950 p-3"/></label><label className="mt-4 block text-sm text-slate-400">Charge head override<select value={head} onChange={e=>setHead(e.target.value)} className="mt-2 block w-full rounded-xl bg-slate-950 p-3 text-white"><option value="">Auto detect from file (recommended)</option>{heads.map(x=><option key={x.id} value={x.id}>{x.name} · {x.gst_rate}%</option>)}</select></label><label className="mt-4 block text-sm text-slate-400">Period start<input required type="date" value={period} onChange={e=>setPeriod(e.target.value)} className="mt-2 block w-full rounded-xl bg-slate-950 p-3 text-white"/></label><button disabled={busy} className="mt-5 w-full rounded-xl bg-cyan-400 py-3 font-bold text-slate-950 disabled:opacity-50">{busy?"Working…":"Upload and review"}</button>{message&&<p className="mt-3 text-sm text-amber-300">{message}</p>}</form><div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4"><h3 className="mb-3 font-bold">Import batches</h3>{batches.map(x=><button key={x.id} onClick={()=>open(x.id)} className="mb-2 flex w-full justify-between rounded-xl bg-slate-950 p-3 text-left"><span><b>#{x.id}</b> {x.file_name}</span><span className="text-cyan-300">{x.status}</span></button>)}</div></div>
+    <div>{!detail?<div className="rounded-2xl border border-dashed border-slate-700 p-12 text-center text-slate-500">Upload or select a batch to review</div>:<div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm text-cyan-400">Batch #{detail.id} · {detail.status}</p><h2 className="text-2xl font-bold">{detail.file_name}</h2></div>{["reviewed","partially_posted","correction_review"].includes(detail.status)&&<button disabled={busy} onClick={post} className="rounded-xl bg-emerald-400 px-5 py-3 font-bold text-slate-950 disabled:opacity-40">Post new matched rows</button>}</div>
+      <div className="my-5 grid grid-cols-2 gap-3 md:grid-cols-4">{[["Rows",detail.row_count],["Matched",detail.matched],["Warnings",detail.warnings],["Corrections",detail.corrections],["Duplicates",detail.duplicates],["Cancelled",detail.cancelled],["Bill links",detail.allocations],["Base",money(detail.base_total)],["Gross",money(detail.gross_total)]].map(([k,v])=><div key={String(k)} className="rounded-xl bg-slate-950 p-3"><p className="text-xs uppercase text-slate-500">{k}</p><p className="mt-1 font-bold">{v}</p></div>)}</div>
+      {detail.corrections>0&&<div className="mb-5 rounded-xl border border-amber-400/30 bg-amber-400/5 p-4 text-sm text-amber-100">Existing invoices and receipts are unchanged until every correction or cancellation is reviewed below.</div>}
+      <div className="space-y-3">{detail.rows.map(row=><div key={row.id} className={`rounded-xl border p-4 ${row.status==="correction"?"border-amber-400/40 bg-amber-400/5":"border-slate-800 bg-slate-950/50"}`}><div className="flex flex-wrap justify-between gap-3"><div><b>Row {row.row_number} · {row.party}</b><p className="mt-1 text-sm text-slate-400">{row.voucher_type} #{row.voucher_no??"—"} · {row.match_method} · {money(row.gross)}</p><p className="mt-1 text-xs text-slate-500">{row.charge_ledger&&<>Charge: {row.charge_ledger} · </>}Source: {row.source_format??"xml"} · GUID: {row.source_guid??"not provided"}</p>{(row.bill_allocations??[]).map((item,index)=><p key={index} className="mt-1 text-xs text-cyan-300">Bill {item.type}: {item.reference} · {money(item.amount)}</p>)}</div><span className={row.status==="error"?"text-rose-300":row.status==="correction"?"text-amber-200":"text-emerald-300"}>{row.status==="correction"?"Correction detected":row.status}</span></div>
+        {(row.tax_errors??[]).map((error,index)=><p key={index} className="mt-2 text-xs text-rose-300">{error}</p>)}{(row.warnings??[]).map((warning,index)=><p key={index} className="mt-2 text-xs text-amber-300">Warning: {warning}</p>)}
+        {row.status==="correction"&&row.correction&&<div className="mt-4"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="text-left text-slate-400"><tr><th className="py-2">Field</th><th>Existing</th><th>Corrected Tally value</th></tr></thead><tbody>{Object.entries(row.correction.changes).map(([key,value])=><tr key={key} className="border-t border-slate-800"><td className="py-2">{labels[key]??key}</td><td>{value.existing}</td><td className="text-amber-100">{value.replacement}</td></tr>)}</tbody></table></div><input value={reasons[row.id]??""} onChange={e=>setReasons({...reasons,[row.id]:e.target.value})} placeholder="Reason for correction (required to replace)" className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 p-3"/><div className="mt-3 flex flex-wrap gap-2"><button disabled={busy} onClick={()=>decide(row,true)} className="rounded-lg bg-amber-300 px-4 py-2 font-bold text-slate-950">Approve Tally change</button><button disabled={busy} onClick={()=>decide(row,false)} className="rounded-lg bg-slate-700 px-4 py-2">Keep existing transaction</button></div></div>}
+      </div>)}</div>
+    </div>}</div>
+  </div></section>;
+}

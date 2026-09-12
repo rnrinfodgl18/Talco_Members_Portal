@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+testpaths = ["tests", "app/importer/tests"]
+pythonpath = ["."]
+addopts = "-ra"
+

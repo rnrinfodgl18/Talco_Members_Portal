@@ -1,0 +1,25 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+node_modules/
+dist/
+
+# Real TALCO exports contain member data and must stay local.
+source-data/
+api/app/importer/tests/fixtures/*
+!api/app/importer/tests/fixtures/.gitkeep
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+
+# Local Codex attachments and TypeScript incremental build cache.
+.codex-remote-attachments/
+*.tsbuildinfo

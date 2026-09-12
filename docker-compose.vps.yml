@@ -1,0 +1,76 @@
+name: talco-dintec
+
+services:
+  talco-v1-postgres:
+    image: postgres:16-alpine
+    container_name: talco-v1-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: talco_portal
+      POSTGRES_USER: talco
+      POSTGRES_PASSWORD: ${TALCO_DB_PASSWORD:?set TALCO_DB_PASSWORD in .env}
+      TZ: ${TZ:-Asia/Kolkata}
+      PUBLIC_URL: ${PUBLIC_URL:-https://talco.smartiva.tech}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@talco.smartiva.tech}
+    volumes:
+      - talco_v1_db_data:/var/lib/postgresql/data
+    networks: [office]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U talco -d talco_portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  talco-v1-api:
+    build:
+      context: ./api
+    container_name: talco-v1-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://talco:${TALCO_DB_PASSWORD:?set TALCO_DB_PASSWORD in .env}@talco-v1-postgres:5432/talco_portal
+      TZ: ${TZ:-Asia/Kolkata}
+      PUBLIC_URL: ${PUBLIC_URL:-https://talco.smartiva.tech}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@talco.smartiva.tech}
+    depends_on:
+      talco-v1-postgres:
+        condition: service_healthy
+    networks: [office]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  talco-v1-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.vps
+      args:
+        VITE_API_URL: ""
+    container_name: talco-v1-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8002:8002"
+    depends_on:
+      talco-v1-api:
+        condition: service_healthy
+    networks: [office]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  talco_v1_db_data:
+
+networks:
+  office:
+    external: true
+    name: office

@@ -1,0 +1,53 @@
+import { useEffect, useState } from "react";
+import { api, fieldClass } from "./api";
+import { StatementTable, HistoryTable } from "./LedgerTable";
+import LedgerPrint from "./LedgerPrint";
+import { StatementEntry, HistoryEntry, balanceLabel, formatDate, formatMoney } from "./ledgerPresentation";
+
+type Account={id:number;code:string;name:string;relationship_role:string|null;tanneries:{name:string;role:string}[]};
+type Dashboard={party:{id:number;code:string;name:string};outstanding:string;opening_balance:string;opening_date:string|null;scope_note:string|null;last_bill:{voucher_no:string;date:string;amount:string}|null};
+type InvoiceDetail={id:number;voucher_no:string;fy:string;date:string;account:string;account_code:string;tannery:string;tannery_gstin:string|null;charge_head:string;base:string;cgst:string;sgst:string;gross:string;revision_count:number;revisions:{date:string;reason:string|null;revised_by:string|null}[]};
+type Tab="statement"|"invoices"|"receipts";
+const relationship=(role:string)=>({owner:"Owner",lessee:"Lessee",account_holder:"Account holder",staff:"Staff",member_staff:"Staff"}[role]??role);
+const sourceDisplay=(value:string)=>value.startsWith("legacy-")?"Not provided":value;
+
+export default function PortalPage({initialAccountId}:{initialAccountId?:number}){
+ const [accounts,setAccounts]=useState<Account[]>([]),[selected,setSelected]=useState("");
+ const [company,setCompany]=useState<any>({});
+ const [dashboard,setDashboard]=useState<Dashboard|null>(null),[ledger,setLedger]=useState<StatementEntry[]>([]),[history,setHistory]=useState<HistoryEntry[]>([]);
+ const [error,setError]=useState(""),[loading,setLoading]=useState(true),[accountsLoading,setAccountsLoading]=useState(true);
+ const [version,setVersion]=useState(0),[tab,setTab]=useState<Tab>("statement"),[invoice,setInvoice]=useState<InvoiceDetail|null>(null);
+ useEffect(()=>{api("/api/settings/public").then(setCompany).catch(()=>{})},[]);
+ useEffect(()=>{let active=true;setAccountsLoading(true);setError("");api("/api/portal/accounts").then((items:Account[])=>{if(!active)return;setAccounts(items);setSelected(current=>items.some(item=>String(item.id)===current)?current:String(items.find(item=>item.id===initialAccountId)?.id??items[0]?.id??""))}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setAccountsLoading(false)});return()=>{active=false}},[initialAccountId,version]);
+ useEffect(()=>{if(!selected){setDashboard(null);setLedger([]);return}let active=true;setLoading(true);setError("");setDashboard(null);setLedger([]);setHistory([]);const query="?party_id="+selected;Promise.all([api("/api/portal/dashboard"+query),api("/api/portal/ledger"+query),tab==="statement"?Promise.resolve([]):api("/api/portal/"+tab+query)]).then(([summary,entries,records])=>{if(active){setDashboard(summary);setLedger(entries);setHistory(records)}}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[selected,tab,version]);
+ const account=accounts.find(item=>String(item.id)===selected);
+ const premises=account?[...new Set(account.tanneries.map(item=>item.name+" ("+relationship(item.role)+")"))].join(" / "):"";
+ const printView=(kind:"ledger"|"invoice")=>{document.body.dataset.print=kind;const cleanup=()=>{delete document.body.dataset.print};window.addEventListener("afterprint",cleanup,{once:true});window.print();setTimeout(cleanup,1000)};
+ const showInvoice=(id:number)=>api("/api/portal/invoices/"+id).then(setInvoice).catch(e=>setError(e.message));
+ return <section className="ledger-print mx-auto max-w-7xl p-5 lg:p-8">
+  <LedgerPrint company={company} accountCode={dashboard?.party.code} accountName={account?.name} premises={premises} rows={ledger} closing={dashboard?.outstanding}/>
+  <header><p className="text-xs uppercase tracking-widest text-cyan-400">Bills & payments</p><h2 className="mt-2 text-3xl font-bold">Account Statement</h2><p className="mt-2 text-slate-400">See your bills, payments and the balance after each entry.</p></header>
+  <label className="no-print mt-5 block max-w-2xl text-sm text-slate-400">Select account<select className={fieldClass} disabled={accountsLoading} value={selected} onChange={e=>{setSelected(e.target.value);setTab("statement")}}>{accounts.length===0&&<option value="">No assigned accounts</option>}{accounts.map(item=><option key={item.id} value={item.id}>{item.name} · {item.code}{item.relationship_role?" ("+relationship(item.relationship_role)+")":""}</option>)}</select></label>
+  {premises&&<p className="mt-3 text-sm text-slate-400">{premises}</p>}
+  {error&&<p role="alert" className="no-print mt-5 text-rose-300">{error} <button className="underline" onClick={()=>setVersion(value=>value+1)}>Retry</button></p>}
+  {accountsLoading?<p className="mt-6 text-slate-400">Loading accounts…</p>:accounts.length===0&&!error?<p className="mt-6 rounded-xl border border-slate-800 p-6 text-slate-400">No accounts are assigned to this login. Contact the TALCO administrator.</p>:selected&&loading?<p className="mt-6 text-slate-400">Loading statement…</p>:dashboard&&<>
+   <div className="mt-6 grid gap-4 md:grid-cols-3"><Card label={balanceLabel(dashboard.outstanding)} value={formatMoney(dashboard.outstanding)} tone={Number(dashboard.outstanding)<0?"credit":Number(dashboard.outstanding)>0?"due":undefined} detail="Based on the entries in this statement"/><Card label="Opening balance" value={dashboard.opening_date?formatMoney(dashboard.opening_balance):"Not entered"} detail={dashboard.opening_date?balanceLabel(dashboard.opening_balance)+" · "+formatDate(dashboard.opening_date):"No starting balance has been recorded"}/><Card label="Latest bill" value={dashboard.last_bill?formatMoney(dashboard.last_bill.amount):"No bills yet"} detail={dashboard.last_bill?formatDate(dashboard.last_bill.date):"In this statement"}/></div>
+   {dashboard.scope_note&&<p className="mt-4 text-sm text-amber-200">{dashboard.scope_note}</p>}
+   {dashboard.opening_date?<p className="mt-4 text-sm text-slate-400">Statement starts on {formatDate(dashboard.opening_date)}. Earlier entries are available under All bills and All payments.</p>:!dashboard.scope_note&&<p className="no-print mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">No opening balance has been entered. The balance shown uses only the bills and payments recorded here.</p>}
+   <nav aria-label="Statement views" className="no-print mb-4 mt-6 flex flex-wrap gap-2">{([["statement","Statement"],["invoices","All bills"],["receipts","All payments"]] as [Tab,string][]).map(([key,label])=><button key={key} aria-current={tab===key?"page":undefined} onClick={()=>setTab(key)} className={"rounded-xl px-4 py-2 "+(tab===key?"bg-cyan-400 font-bold text-slate-950":"bg-slate-800 text-slate-300")}>{label}</button>)}{tab==="statement"&&<button onClick={()=>printView("ledger")} className="rounded-xl border border-cyan-400/50 px-4 py-2 text-cyan-200">Print ledger</button>}</nav>
+   {tab==="statement"?<><p className="no-print mb-4 text-sm text-slate-400">Charges increase the amount due. Payments reduce it. Extra payments appear as advance / credit.</p><StatementTable rows={ledger}/></>:<HistoryTable rows={history} kind={tab==="invoices"?"invoice":"receipt"} onView={tab==="invoices"?showInvoice:undefined}/>}
+  </>}
+  {invoice&&<div className="no-print fixed inset-0 z-50 overflow-y-auto bg-slate-950/90 p-4 md:p-10"><div className="invoice-sheet mx-auto max-w-3xl rounded-2xl bg-white p-7 text-slate-900 shadow-2xl md:p-10">
+   <div className="flex items-start justify-between gap-4 border-b-2 border-slate-900 pb-5"><div><p className="text-sm font-bold uppercase tracking-widest">TALCO-DINTEC CETP</p><h2 className="mt-2 text-3xl font-black">Invoice Copy</h2></div><div className="text-right"><p className="text-sm text-slate-500">Invoice number</p><p className="text-xl font-bold">{sourceDisplay(invoice.voucher_no)}</p><p className="mt-1 text-sm">{formatDate(invoice.date)}</p></div></div>
+   <div className="grid gap-5 border-b border-slate-300 py-6 sm:grid-cols-2"><div><p className="text-xs uppercase text-slate-500">Bill to</p><p className="mt-1 text-lg font-bold">{invoice.account}</p><p>{invoice.account_code}</p></div><div><p className="text-xs uppercase text-slate-500">Premises</p><p className="mt-1 font-semibold">{invoice.tannery}</p>{invoice.tannery_gstin&&<p>GSTIN: {invoice.tannery_gstin}</p>}<p>Financial year: {invoice.fy}</p></div></div>
+   <table className="mt-6 w-full"><thead><tr className="border-b border-slate-400 text-left"><th className="py-3">Description</th><th className="py-3 text-right">Amount</th></tr></thead><tbody><tr className="border-b border-slate-200"><td className="py-4">{invoice.charge_head}</td><td className="py-4 text-right">{formatMoney(invoice.base)}</td></tr><tr><td className="py-2">CGST</td><td className="py-2 text-right">{formatMoney(invoice.cgst)}</td></tr><tr><td className="py-2">SGST</td><td className="py-2 text-right">{formatMoney(invoice.sgst)}</td></tr><tr className="border-t-2 border-slate-900 text-xl font-bold"><td className="py-4">Invoice total</td><td className="py-4 text-right">{formatMoney(invoice.gross)}</td></tr></tbody></table>
+   {invoice.revision_count>0&&<p className="mt-5 rounded-lg bg-amber-50 p-3 text-sm">This invoice has {invoice.revision_count} approved correction{invoice.revision_count===1?"":"s"}. The latest approved value is shown.</p>}
+   <p className="mt-8 border-t border-slate-300 pt-4 text-xs text-slate-500">System generated invoice copy from the TALCO-DINTEC member portal.</p>
+   <div className="invoice-actions mt-6 flex justify-end gap-3"><button onClick={()=>setInvoice(null)} className="rounded-lg bg-slate-200 px-4 py-2">Close</button><button onClick={()=>printView("invoice")} className="rounded-lg bg-slate-900 px-5 py-2 font-bold text-white">Print invoice</button></div>
+  </div></div>}
+ </section>;
+}
+
+function Card({label,value,detail,tone}:{label:string;value:string;detail:string;tone?:"credit"|"due"}){
+ return <div className={"rounded-2xl border bg-slate-900 p-5 "+(tone==="credit"?"border-emerald-400/30":tone==="due"?"border-amber-400/30":"border-slate-800")}><p className="text-sm text-slate-400">{label}</p><p className={"mt-2 text-2xl font-bold "+(tone==="credit"?"text-emerald-300":tone==="due"?"text-amber-200":"text-slate-100")}>{value}</p><p className="mt-2 text-xs text-slate-500">{detail}</p></div>
+}
