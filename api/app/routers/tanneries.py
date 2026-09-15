@@ -1,6 +1,8 @@
 import json
+import tempfile
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,6 +12,7 @@ from app.models import AuditLog, DataQualityIssue, TannerySerialCounter, Pump, T
 from app.models.auth import User
 from app.security import require_roles
 from app.importer.normalize import nkey
+from app.services.master_load import import_master_workbooks
 from app.schemas.tannery import QualityIssueOut, TanneryOut, TanneryUpdate, TanneryCreate
 
 
@@ -41,6 +44,39 @@ def quality_report(session: Session = Depends(get_db)) -> list[QualityIssueOut]:
     return [QualityIssueOut(id=issue.id, tannery_id=issue.tannery_id, tannery_sno=sno,
                             tannery_name=name, code=issue.code, detail=issue.detail)
             for issue, sno, name in rows]
+
+
+@router.post("/import-master", status_code=201)
+async def import_master_excel(
+    files: list[UploadFile] = File(...),
+    session: Session = Depends(get_db),
+    actor: User = Depends(require_roles("talco_admin")),
+) -> dict[str, int | str]:
+    if not files or len(files) > 5:
+        raise HTTPException(422, "Select between 1 and 5 Pump Master Excel files")
+    total = 0
+    with tempfile.TemporaryDirectory() as directory:
+        paths = []
+        for upload in files:
+            name = Path(upload.filename or "").name
+            if Path(name).suffix.lower() not in {".xlsx", ".xlsm"}:
+                raise HTTPException(422, f"{name or 'File'}: only .xlsx or .xlsm is supported")
+            content = await upload.read()
+            total += len(content)
+            if total > 15 * 1024 * 1024:
+                raise HTTPException(422, "Combined master upload exceeds 15 MB")
+            path = Path(directory) / name
+            path.write_bytes(content)
+            paths.append(path)
+        try:
+            result = import_master_workbooks(session, paths, actor.email)
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(422, str(exc)) from exc
+        except IntegrityError as exc:
+            session.rollback()
+            raise HTTPException(409, "Master import conflicts with an existing serial number or tannery name") from exc
+    return {**result, "message": "Pump and tannery masters imported successfully"}
 
 
 @router.get("/{tannery_id}", response_model=TanneryOut)

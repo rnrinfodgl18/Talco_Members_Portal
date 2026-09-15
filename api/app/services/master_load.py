@@ -2,14 +2,14 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.importer.masters import load_master_directory
+from app.importer.masters import load_master_directory, load_workbooks
 from app.importer.matcher import resolve
 from app.importer.normalize import nkey
 from app.importer.parser import parse_file
-from app.models import ChargeHead, DataQualityIssue, Pump, Tannery
+from app.models import AuditLog, ChargeHead, DataQualityIssue, Pump, Tannery, TannerySerialCounter
 
 
 APPROVED_LEGACY_ALIASES = {
@@ -57,6 +57,86 @@ def _master_issues(master, as_of: date) -> list[tuple[str, str]]:
         issues.append(("EMAIL_INVALID", f"Email is malformed: {email}"))
     return issues
 
+
+
+def import_master_workbooks(session: Session, paths: list[str | Path], actor: str,
+                            as_of: date | None = None) -> dict[str, int]:
+    masters = load_workbooks(paths)
+    if not masters:
+        raise ValueError("No tannery sheets were found in the selected workbooks")
+    imported_names = [nkey(master.name) for master in masters]
+    if len(imported_names) != len(set(imported_names)):
+        raise ValueError("Duplicate tannery name in master workbooks")
+
+    pump_rows = {row.code: row for row in session.scalars(select(Pump)).all()}
+    pumps_created = 0
+    for code in sorted({master.pump_house for master in masters}):
+        if code not in pump_rows:
+            row = Pump(code=code, name=f"Pump house {code}")
+            session.add(row)
+            pump_rows[code] = row
+            pumps_created += 1
+
+    rows_by_sno = {row.sno: row for row in session.scalars(select(Tannery)).all()}
+    names_by_key = {row.normalized_key: row for row in rows_by_sno.values()}
+    created = updated = 0
+    imported_rows = []
+    for master in masters:
+        row = rows_by_sno.get(master.sno)
+        name_key = nkey(master.name)
+        conflicting = names_by_key.get(name_key)
+        if conflicting is not None and conflicting.sno != master.sno:
+            raise ValueError(f"Tannery name already belongs to S.No {conflicting.sno}: {master.name}")
+        values = {
+            "name": master.name, "normalized_key": name_key, "pump_house": master.pump_house,
+            "internal_id": master.internal_id, "factory_id": master.factory_id,
+            "tnpcb_user_id": master.tnpcb_user_id, "gps": master.gps, "gstin": master.gstin,
+            "consent": master.consent, "original_capacity": master.original_capacity,
+            "additional_capacity": master.additional_capacity, "original_shares": master.original_shares,
+            "additional_shares": master.additional_shares,
+            "phone": str(master.attributes.get("CONTACT NUMBER") or "").strip() or None,
+            "email": str(master.attributes.get("EMAIL") or "").strip() or None,
+        }
+        if row is None:
+            row = Tannery(sno=master.sno, **values)
+            session.add(row)
+            session.flush()
+            session.add(AuditLog(entity_type="tannery", entity_id=row.id, action="master_import_create",
+                                 changed_by=actor, changes=f'{{"source_serial": {master.sno}}}'))
+            rows_by_sno[master.sno] = row
+            names_by_key[name_key] = row
+            created += 1
+        else:
+            changes = {}
+            for key, value in values.items():
+                old = getattr(row, key)
+                if old != value:
+                    changes[key] = {"from": old, "to": value}
+                    setattr(row, key, value)
+            if changes:
+                import json
+                session.add(AuditLog(entity_type="tannery", entity_id=row.id, action="master_import_update",
+                                     changed_by=actor, changes=json.dumps(changes, default=str)))
+                updated += 1
+        imported_rows.append(row)
+
+    session.flush()
+    imported_ids = [row.id for row in imported_rows]
+    session.execute(delete(DataQualityIssue).where(DataQualityIssue.tannery_id.in_(imported_ids)))
+    check_date = as_of or date.today()
+    for master, row in zip(masters, imported_rows):
+        for code, detail in _master_issues(master, check_date):
+            session.add(DataQualityIssue(tannery_id=row.id, code=code, detail=detail))
+
+    highest = session.scalar(select(func.coalesce(func.max(Tannery.sno), 0))) or 0
+    counter = session.get(TannerySerialCounter, 1)
+    if counter is None:
+        session.add(TannerySerialCounter(id=1, last_value=highest))
+    elif counter.last_value < highest:
+        counter.last_value = highest
+    session.commit()
+    return {"files": len(paths), "pumps_created": pumps_created, "tanneries_created": created,
+            "tanneries_updated": updated, "tanneries_total": len(masters)}
 
 def load_masters(session: Session, fixture_dir: str | Path, as_of: date = date(2026, 8, 31)) -> dict[str, int]:
     fixture_path = Path(fixture_dir)

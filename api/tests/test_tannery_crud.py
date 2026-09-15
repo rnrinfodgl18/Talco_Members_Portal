@@ -185,3 +185,62 @@ def test_first_auto_serial_and_failed_create_rollback(master_api):
     assert client.post('/api/tanneries', json=data, headers=auth).json()['sno'] == 1
     assert client.post('/api/tanneries', json=data, headers=auth).status_code == 409
     assert client.post('/api/tanneries', json={**data,'name':'Second master'}, headers=auth).json()['sno'] == 2
+
+
+def _master_workbook(serial=10, name="Imported Leather"):
+    from io import BytesIO
+    from openpyxl import Workbook
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Tannery"
+    sheet["A1"] = f"{serial}. Master"
+    rows = [
+        (1, "NAME OF THE TANNERY", name),
+        (2, "TANNERY ID INTERNAL", "INT-10"),
+        (3, "GST NUMBER", "33ABCDE1234F1Z5"),
+        (4, "CONTACT NUMBER", "9876543210"),
+        (5, "EMAIL", "office@example.com"),
+    ]
+    for row, values in enumerate(rows, start=5):
+        for column, value in enumerate(values, start=1):
+            sheet.cell(row=row, column=column, value=value)
+    output = BytesIO()
+    book.save(output)
+    return output.getvalue()
+
+
+def test_admin_imports_pump_and_tannery_workbook_idempotently(master_api):
+    client, headers, factory = master_api
+    with factory() as session:
+        session.query(Pump).delete()
+        session.commit()
+    upload = {"files": ("A PUMP HOUSE-MASTER DATA.xlsx", _master_workbook(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    response = client.post("/api/tanneries/import-master", files=upload, headers=headers["talco_admin"])
+    assert response.status_code == 201, response.text
+    assert response.json()["pumps_created"] == 1
+    assert response.json()["tanneries_created"] == 1
+    with factory() as session:
+        assert session.scalar(select(Pump).where(Pump.code == "A")).name == "Pump house A"
+        tannery = session.scalar(select(Tannery).where(Tannery.sno == 10))
+        assert tannery.name == "Imported Leather"
+        assert session.get(TannerySerialCounter, 1).last_value == 10
+
+    changed = {"files": ("A PUMP HOUSE-MASTER DATA.xlsx", _master_workbook(name="Imported Leather Updated"),
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    response = client.post("/api/tanneries/import-master", files=changed, headers=headers["talco_admin"])
+    assert response.status_code == 201, response.text
+    assert response.json()["tanneries_created"] == 0
+    assert response.json()["tanneries_updated"] == 1
+
+
+def test_master_import_rejects_non_admin_and_wrong_filename(master_api):
+    client, headers, _ = master_api
+    upload = {"files": ("master.xlsx", _master_workbook(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    assert client.post("/api/tanneries/import-master", files=upload,
+                       headers=headers["talco_staff"]).status_code == 403
+    response = client.post("/api/tanneries/import-master", files=upload,
+                           headers=headers["talco_admin"])
+    assert response.status_code == 422
+    assert "pump house" in response.json()["detail"].lower()
