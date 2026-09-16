@@ -244,3 +244,27 @@ table tbody tr[class*="bg-cyan-400"] { background-color: var(--erp-primary-soft)
 @media (max-width: 767px) {
   aside nav { overflow-x: visible !important; }
 }
+
+/* High-visibility actions and phone-first PWA finishing. */
+.erp-primary-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #087f5b; border-radius: .625rem;
+  background: #087f5b !important; color: #fff !important;
+  font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.12);
+}
+.erp-primary-button:hover { background: #066b4d !important; }
+.erp-primary-button:focus-visible { outline: 3px solid #99e9d2; outline-offset: 2px; }
+main { color: var(--erp-text); }
+main .text-cyan-200, main .text-emerald-300 { color: #087f5b !important; }
+main button, main a { -webkit-tap-highlight-color: transparent; }
+@media (max-width: 767px) {
+  html { overflow-x: hidden; }
+  body { min-width: 320px; overflow-x: hidden; }
+  main > section { padding: 16px !important; }
+  main h1, main h2 { overflow-wrap: anywhere; }
+  main button, main a[role="button"], .erp-primary-button { min-height: 44px; }
+  .ledger-print nav .erp-primary-button { width: 100%; margin-top: 4px; }
+  .invoice-actions button { width: 100%; min-height: 46px; }
+  footer { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
