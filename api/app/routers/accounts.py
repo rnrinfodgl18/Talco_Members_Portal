@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -14,9 +14,34 @@ from app.importer.normalize import nkey
 from app.models import AuditLog, Invoice, Party, PartyAlias, Receipt, Tannery, TanneryPartyLink
 from app.models.auth import User
 from app.security import require_roles
+from app.services.opening_balance_import import apply_opening_balances, preview_opening_balances
 
 router = APIRouter(prefix='/api/accounts', tags=['ledger accounts'],
                    dependencies=[Depends(require_roles('talco_admin', 'talco_staff'))])
+
+
+@router.post('/opening-import/preview')
+async def preview_opening_import(file: UploadFile = File(...), session: Session = Depends(get_db),
+                                 actor: User = Depends(require_roles('talco_admin'))):
+    if not (file.filename or '').lower().endswith(('.xlsx', '.xlsm')):
+        raise HTTPException(422, 'Choose a Tally opening balance Excel file (.xlsx)')
+    try:
+        return preview_opening_balances(session, file.filename or 'opening-balance.xlsx', await file.read())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post('/opening-import/apply')
+async def apply_opening_import(file: UploadFile = File(...),
+                               approve_overwrite: bool = Form(False),
+                               reason: str = Form(''), session: Session = Depends(get_db),
+                               actor: User = Depends(require_roles('talco_admin'))):
+    try:
+        return apply_opening_balances(session, file.filename or 'opening-balance.xlsx', await file.read(),
+                                      approve_overwrite, reason, actor.email)
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(422, str(exc)) from exc
 
 
 class AccountInput(BaseModel):
