@@ -268,3 +268,19 @@ main button, main a { -webkit-tap-highlight-color: transparent; }
   footer { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+
+/* Administrator-managed application theme. These final rules intentionally override legacy utility colours. */
+:root { --erp-action-text: #ffffff; --erp-edit: #9a6700; --erp-view: #075985; --erp-print: #087f5b; }
+body, main { background: var(--erp-canvas) !important; color: var(--erp-text) !important; }
+main [class~="bg-white"], main [class~="bg-slate-900"], main [class~="bg-stone-50"], main [class~="bg-stone-100"] { background-color: var(--erp-surface) !important; }
+main [class~="text-slate-900"], main [class~="text-slate-800"], main [class~="text-slate-700"], main [class~="text-slate-600"], main [class~="text-slate-100"] { color: var(--erp-text) !important; }
+main [class~="text-slate-500"], main [class~="text-slate-400"], main [class~="text-slate-300"] { color: var(--erp-muted) !important; }
+main [class~="border-slate-200"], main [class~="border-slate-700"], main [class~="border-slate-800"] { border-color: var(--erp-border) !important; }
+main button[class~="bg-cyan-400"], main button[class~="bg-cyan-700"], .erp-primary-button { background: var(--erp-primary) !important; color: var(--erp-action-text) !important; border-color: var(--erp-primary) !important; }
+main button.action-edit { background: var(--erp-edit) !important; color: var(--erp-action-text) !important; border-color: var(--erp-edit) !important; border-radius: 8px; padding: .5rem .75rem; font-weight: 700; }
+main button.action-view { background: var(--erp-view) !important; color: var(--erp-action-text) !important; border-color: var(--erp-view) !important; border-radius: 8px; padding: .5rem .75rem; font-weight: 700; }
+main button.action-print { background: var(--erp-print) !important; color: var(--erp-action-text) !important; border-color: var(--erp-print) !important; border-radius: 8px; padding: .5rem .75rem; font-weight: 700; }
+main button.action-danger { background: var(--erp-danger) !important; color: var(--erp-action-text) !important; border-color: var(--erp-danger) !important; border-radius: 8px; padding: .5rem .75rem; font-weight: 700; }
+table tbody tr { background-color: var(--erp-surface) !important; color: var(--erp-text) !important; }
+table tbody td { color: var(--erp-text); }
+@media (max-width:767px) { .mobile-card-table tbody tr { background: var(--erp-surface) !important; } }

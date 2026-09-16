@@ -40,6 +40,35 @@ class SmtpInput(BaseModel):
     clear_password: bool = False
 
 
+_THEME_DEFAULTS = {
+    "theme_name": "TALCO Professional", "background_color": "#f6f8f7", "surface_color": "#ffffff",
+    "font_color": "#17231e", "muted_color": "#52645d", "primary_color": "#087f5b",
+    "primary_text_color": "#ffffff", "edit_color": "#9a6700", "view_color": "#075985",
+    "print_color": "#087f5b", "danger_color": "#c92a2a", "border_color": "#cfd8d4"
+}
+
+class ThemeInput(BaseModel):
+    theme_name: str = Field(min_length=2, max_length=80)
+    background_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    surface_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    font_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    muted_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    primary_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    primary_text_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    edit_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    view_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    print_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    danger_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    border_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+def _theme(row: CompanySetting) -> dict:
+    try:
+        stored = json.loads(row.theme_json) if row.theme_json else {}
+    except (TypeError, json.JSONDecodeError):
+        stored = {}
+    return _THEME_DEFAULTS | {key: value for key, value in stored.items() if key in _THEME_DEFAULTS}
+
 class SmtpTestInput(BaseModel):
     recipient: str = Field(min_length=5, max_length=255)
 
@@ -78,7 +107,7 @@ def _smtp(row: CompanySetting) -> dict:
 @router.get("/public")
 def public_settings(session: Session = Depends(get_db)):
     row = _settings(session)
-    return _company(row)
+    return _company(row) | {"theme": _theme(row)}
 
 
 @router.get("/logo")
@@ -93,7 +122,7 @@ def logo(session: Session = Depends(get_db)):
 @router.get("")
 def get_settings(user: User = Depends(current_user), session: Session = Depends(get_db)):
     row = _settings(session)
-    result = {"company": _company(row)}
+    result = {"company": _company(row), "theme": _theme(row)}
     if user.role == "talco_admin":
         result["smtp"] = _smtp(row)
     return result
@@ -140,6 +169,18 @@ def delete_logo(actor: User = Depends(require_roles("talco_admin")), session: Se
     session.commit()
 
 
+
+@router.put("/theme")
+def update_theme(data: ThemeInput, actor: User = Depends(require_roles("talco_admin")),
+                 session: Session = Depends(get_db)):
+    row = _settings(session)
+    before = _theme(row)
+    after = data.model_dump()
+    row.theme_json = json.dumps(after)
+    session.add(AuditLog(entity_type="theme_setting", entity_id=1, action="update",
+        changed_by=actor.email, changes=json.dumps({"from": before, "to": after})))
+    session.commit()
+    return after
 @router.put("/smtp")
 def update_smtp(data: SmtpInput, actor: User = Depends(require_roles("talco_admin")),
                 session: Session = Depends(get_db)):

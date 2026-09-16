@@ -1,6 +1,6 @@
-const CACHE = "talco-shell-v2";
+const CACHE = "talco-shell-v3";
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(["/", "/manifest.webmanifest", "/pwa-icon.svg", "/help/manual.html"])));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(["/", "/manifest.webmanifest", "/pwa-icon.svg"])));
   self.skipWaiting();
 });
 self.addEventListener("activate", event => {

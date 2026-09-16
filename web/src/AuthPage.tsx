@@ -1,5 +1,6 @@
 import {FormEvent,useEffect,useState} from "react";
 import {apiUrl} from "./api";
+import {applyTheme} from "./theme";
 
 type Props={onAuthenticated:(user:any,token:string)=>void};
 type Action={token:string;purpose:"invite"|"reset";email:string;expires_at:string};
@@ -16,7 +17,7 @@ export default function AuthPage({onAuthenticated}:Props){
  const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[confirm,setConfirm]=useState("");
  const [action,setAction]=useState<Action|null>(null),[brand,setBrand]=useState({short_name:"TALCO",has_logo:false});
  const [message,setMessage]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(!!(invite||reset));
- useEffect(()=>{fetch(`${apiUrl}/api/settings/public`).then(r=>r.json()).then(setBrand).catch(()=>{})},[]);
+ useEffect(()=>{fetch(`${apiUrl}/api/settings/public`).then(r=>r.json()).then(next=>{setBrand(next);applyTheme(next.theme)}).catch(()=>{})},[]);
  useEffect(()=>{const token=invite||reset;if(!token)return;fetch(`${apiUrl}/api/auth/action?token=${encodeURIComponent(token)}`).then(async r=>{const b=await r.json();if(!r.ok)throw new Error(b.detail||"This link is invalid or has expired");setAction({token,purpose:b.purpose,email:b.email,expires_at:b.expires_at})}).catch(e=>setError(e.message)).finally(()=>setLoading(false))},[]);
  useEffect(()=>{const verify=params.get("verify");if(!verify)return;request("/api/auth/verify-email",{token:verify}).then(()=>{history.replaceState({},"","/");setMessage("Email verified. You can sign in now.")}).catch(e=>setError(e.message))},[]);
  const clear=()=>{setError("");setMessage("")};

@@ -57,3 +57,19 @@ def test_admin_can_send_logged_smtp_test_while_delivery_disabled(master_api, mon
         delivery = session.scalar(select(DeliveryLog).where(DeliveryLog.channel == "email"))
         assert delivery.status == "sent"
         assert delivery.destination == "real@example.test"
+
+
+def test_admin_can_publish_theme_for_all_users(master_api):
+    client, headers, session_factory = master_api
+    theme = {
+        "theme_name": "High Visibility", "background_color": "#f4f4f4", "surface_color": "#ffffff",
+        "font_color": "#111111", "muted_color": "#444444", "primary_color": "#005f46",
+        "primary_text_color": "#ffffff", "edit_color": "#8a4b00", "view_color": "#004b76",
+        "print_color": "#005f46", "danger_color": "#b42318", "border_color": "#b8c2bd"
+    }
+    assert client.put("/api/settings/theme", headers=headers["talco_staff"], json=theme).status_code == 403
+    response = client.put("/api/settings/theme", headers=headers["talco_admin"], json=theme)
+    assert response.status_code == 200
+    assert client.get("/api/settings/public").json()["theme"] == theme
+    with session_factory() as session:
+        assert session.query(AuditLog).filter_by(entity_type="theme_setting", action="update").count() == 1
