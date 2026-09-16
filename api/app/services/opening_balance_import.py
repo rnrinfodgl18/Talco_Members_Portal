@@ -176,17 +176,15 @@ def apply_opening_balances(session: Session, filename: str, content: bytes, appr
         alias_key = nkey(parts.cleaned)
         existing_alias = session.scalar(select(PartyAlias).where(PartyAlias.normalized_key == alias_key))
         if existing_alias is None:
-            existing_alias = PartyAlias(party_id=party.id, normalized_key=alias_key,
+            existing_alias = PartyAlias(party_id=party.id, tannery_id=tannery.id, normalized_key=alias_key,
                                         raw_name=parts.cleaned, excluded=False)
             session.add(existing_alias)
         elif existing_alias.party_id not in (None, party.id):
             raise ValueError(f"{entry['name']}: ledger alias is linked to another account")
         else:
-            existing_alias.party_id, existing_alias.excluded, existing_alias.revoked_at = party.id, False, None
+            existing_alias.party_id, existing_alias.tannery_id, existing_alias.excluded, existing_alias.revoked_at = party.id, tannery.id, False, None
         active_links = session.scalars(select(TanneryPartyLink).where(
             TanneryPartyLink.party_id == party.id, TanneryPartyLink.valid_to.is_(None))).all()
-        if any(link.tannery_id != tannery.id for link in active_links):
-            raise ValueError(f"{entry['name']}: account is linked to another tannery")
         if not any(link.tannery_id == tannery.id for link in active_links):
             session.add(TanneryPartyLink(tannery_id=tannery.id, party_id=party.id,
                                          role="owner", valid_from=report_date))

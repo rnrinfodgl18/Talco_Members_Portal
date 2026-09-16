@@ -71,6 +71,7 @@ class PartyAlias(Base):
     __tablename__ = "party_alias"
     id: Mapped[int] = mapped_column(primary_key=True)
     party_id: Mapped[int | None] = mapped_column(ForeignKey("party.id"))
+    tannery_id: Mapped[int | None] = mapped_column(ForeignKey("tannery.id", ondelete="SET NULL"), index=True)
     normalized_key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     raw_name: Mapped[str] = mapped_column(String(255), nullable=False)
     excluded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

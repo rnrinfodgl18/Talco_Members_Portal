@@ -61,16 +61,14 @@ def link_row(session: Session, staging_id: int, tannery_id: int, role: str,
     if existing_alias and existing_alias.revoked_at is None and existing_alias.party_id != party.id:
         raise MappingConflictError("This ledger name is already linked to another party")
     if existing_alias is None:
-        alias = PartyAlias(party_id=party.id, normalized_key=alias_key, raw_name=parts.cleaned, excluded=False)
+        alias = PartyAlias(party_id=party.id, tannery_id=tannery.id, normalized_key=alias_key, raw_name=parts.cleaned, excluded=False)
         session.add(alias)
         session.flush()
     else:
         alias = existing_alias
-        alias.party_id, alias.excluded, alias.revoked_at = party.id, False, None
+        alias.party_id, alias.tannery_id, alias.excluded, alias.revoked_at = party.id, tannery.id, False, None
     active_links = session.scalars(select(TanneryPartyLink).where(
         TanneryPartyLink.party_id == party.id, TanneryPartyLink.valid_to.is_(None))).all()
-    if any(link.tannery_id != tannery.id for link in active_links):
-        raise MappingConflictError("Party already has an active link to another tannery")
     if not any(link.tannery_id == tannery.id and link.valid_from == valid_from for link in active_links):
         session.add(TanneryPartyLink(tannery_id=tannery.id, party_id=party.id, role=role,
                                      valid_from=valid_from))

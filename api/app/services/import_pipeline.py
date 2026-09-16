@@ -9,7 +9,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.importer.matcher import resolve
-from app.importer.models import Tannery as ImportTannery
+from app.importer.models import Resolution, Tannery as ImportTannery
 from app.importer.normalize import nkey, split_party
 from app.importer.parser import parse_file
 from app.models import (AuditLog, ChargeHead, ImportBatch, Invoice, InvoiceRevision, Party, PartyAlias,
@@ -108,6 +108,11 @@ def create_batch(session: Session, filename: str, content: bytes, period_start: 
     corrections = 0
     for row in parsed:
         matched = resolve(row.party, masters, approved_aliases(session))
+        parts = split_party(row.party)
+        blocked = session.scalar(select(PartyAlias.id).where(PartyAlias.normalized_key == nkey(parts.cleaned),
+            or_(PartyAlias.excluded.is_(True), PartyAlias.revoked_at.is_not(None))))
+        if blocked:
+            matched = Resolution(None, parts.left, parts.is_step, "unbound")
         head = None if row.is_receipt else _charge_head(session, row.charge_ledger, charge_head_id)
         errors = list(row.tax_errors)
         if not row.is_receipt and head is None:
