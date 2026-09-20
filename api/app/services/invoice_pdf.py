@@ -6,6 +6,15 @@ from app.models import CompanySetting, Invoice, Party, Receipt, ReceiptAllocatio
 def _money(value):
     return f"{Decimal(value or 0):,.2f}"
 
+def _service_line(name):
+    """Tally ledger names already carry "Raised"; seeded head names do not.
+    Append only the suffix the name is missing, so neither doubles up."""
+    text = (name or "Treatment Charges").strip()
+    low = text.lower()
+    if low.endswith("a/c"):
+        return text
+    return text + (" A/c" if low.endswith("raised") else " Raised A/c")
+
 def _or_dash(value):
     """Bank block falls back to an em dash until the admin stores real values."""
     text = (value or "").strip()
@@ -53,14 +62,14 @@ def invoice_pdf(session, invoice: Invoice) -> bytes:
     from weasyprint import HTML
     c=_company(session);p=session.get(Party,invoice.party_id);t=session.get(Tannery,invoice.tannery_id);h=session.get(ChargeHead,invoice.charge_head_id)
     cn=escape(c.company_name if c else "TALCO-DINTEC");ad=", ".join(filter(None,[c.address,c.city,c.state,c.postal_code])) if c else "";contact=" · ".join(filter(None,[c.phone,c.email])) if c else ""
-    buyer=escape(p.name if p else "");prem=escape(t.name if t else "");gst=escape(t.gstin or "Not provided") if t else "Not provided";desc=escape(h.name if h else "Treatment Charges")
+    buyer=escape(p.name if p else "");prem=escape(t.name if t else "");gst=escape(t.gstin or "Not provided") if t else "Not provided";desc=escape(_service_line(h.name if h else None))
     bank_name=_or_dash(c.bank_name if c else None);bank_ac=_or_dash(c.bank_account_number if c else None)
     branch_ifsc=" / ".join(x for x in [(c.bank_branch or "").strip() if c else "", (c.bank_ifsc or "").strip() if c else ""] if x)
     branch_ifsc=escape(branch_ifsc) if branch_ifsc else "\u2014"
     html=f"""<!doctype html><html><head><meta charset="utf-8"><style>{_invoice_styles()}</style></head><body><div class="invoice"><div class="title">Tax Invoice</div>
 <div class="top"><div class="seller"><div class="party"><b>{cn}</b><p>{escape(ad)}</p><p>GSTIN: {escape(c.gstin or "") if c else ""}</p><p>{escape(contact)}</p><p>State Name: Tamil Nadu, Code: 33</p></div><div class="party"><span class="label">Buyer (Bill to)</span><b>{buyer}</b><p>{prem}</p><p>GSTIN/UIN: {gst}</p><p>State Name: Tamil Nadu, Code: 33</p></div></div>
 <div class="meta"><div><span class="label">Invoice No.</span><strong>{escape(invoice.voucher_no)}</strong></div><div><span class="label">Dated</span><strong>{invoice.invoice_date.strftime("%d-%b-%Y")}</strong></div><div><span class="label">Delivery Note</span></div><div><span class="label">Mode/Terms of Payment</span></div><div><span class="label">Reference No. &amp; Date.</span></div><div><span class="label">Other References</span></div><div><span class="label">Buyer's Order No.</span></div><div><span class="label">Dated</span></div><div><span class="label">Dispatch Doc No.</span></div><div><span class="label">Delivery Note Date</span></div><div><span class="label">Dispatched through</span></div><div><span class="label">Destination</span></div></div></div>
-<table class="items"><thead><tr><th class="sl">Sl<br><span class="label">No.</span></th><th class="desc">Description of<br>Services</th><th class="hsn">HSN/SAC</th><th class="amt">Amount</th></tr></thead><tbody><tr class="main"><td class="sl">1</td><td class="desc"><div class="line"><span>{desc} Raised A/c</span><span>₹ {_money(invoice.base_amount)}</span></div><div class="line"><span>OUTPUT CGST A/C</span><span>₹ {_money(invoice.cgst)}</span></div><div class="line"><span>OUTPUT SGST A/C</span><span>₹ {_money(invoice.sgst)}</span></div></td><td class="hsn">9994</td><td class="amt"><b>₹ {_money(invoice.base_amount)}</b><br><br><b>₹ {_money(invoice.cgst)}</b><br><br><b>₹ {_money(invoice.sgst)}</b></td></tr></tbody><tfoot><tr><td></td><td colspan="2" style="text-align:right">Total</td><td class="amt">₹ {_money(invoice.gross_amount)}</td></tr></tfoot></table>
+<table class="items"><thead><tr><th class="sl">Sl<br><span class="label">No.</span></th><th class="desc">Description of<br>Services</th><th class="hsn">HSN/SAC</th><th class="amt">Amount</th></tr></thead><tbody><tr class="main"><td class="sl">1</td><td class="desc"><div class="line"><span>{desc}</span><span>₹ {_money(invoice.base_amount)}</span></div><div class="line"><span>OUTPUT CGST A/C</span><span>₹ {_money(invoice.cgst)}</span></div><div class="line"><span>OUTPUT SGST A/C</span><span>₹ {_money(invoice.sgst)}</span></div></td><td class="hsn">9994</td><td class="amt"><b>₹ {_money(invoice.base_amount)}</b><br><br><b>₹ {_money(invoice.cgst)}</b><br><br><b>₹ {_money(invoice.sgst)}</b></td></tr></tbody><tfoot><tr><td></td><td colspan="2" style="text-align:right">Total</td><td class="amt">₹ {_money(invoice.gross_amount)}</td></tr></tfoot></table>
 <div class="words"><div><span class="label">Amount Chargeable (in words)</span><strong>{escape(_amount_words(invoice.gross_amount))}</strong></div><div class="bank"><span class="label">Company's Bank Details</span><p><b>Bank Name:</b> {bank_name}</p><p><b>A/c No.:</b> {bank_ac}</p><p><b>Branch &amp; IFSC:</b> {branch_ifsc}</p><p><b>for {cn}</b></p></div></div><div class="bottom"><div class="declaration"><span class="label">Declaration</span><p>We declare that this invoice shows the actual service charges and that all particulars are true and correct.</p></div><div class="signature"><b>for {cn}</b><span>Authorised Signatory</span></div></div><div class="computer">This is a Computer Generated Invoice</div></div></body></html>"""
     return HTML(string=html).write_pdf()
 
