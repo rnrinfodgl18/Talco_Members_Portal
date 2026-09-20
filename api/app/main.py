@@ -16,6 +16,7 @@ from app.routers.circulars import router as circulars_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.notifications import router as notifications_router
 from app.routers.imports import router as imports_router
+from app.routers.reports import router as reports_router
 from app.routers.invite_options import router as invite_options_router
 from app.routers.mappings import router as mappings_router
 from app.routers.settings import router as settings_router
@@ -69,6 +70,7 @@ app.include_router(portal_router)
 app.include_router(tanneries_router)
 app.include_router(pumps_router)
 app.include_router(imports_router)
+app.include_router(reports_router)
 app.include_router(mappings_router)
 app.include_router(settings_router)
 
