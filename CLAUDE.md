@@ -85,7 +85,8 @@ Member portal/documents:
 - Invoice View opens the actual official PDF.
 - Bank Receipt Voucher output.
 - Tax Invoice now matches the supplied Tally layout: seller/buyer split, metadata grid, tall service table, HSN/SAC, base/CGST/SGST, total, amount in words, bank block, declaration and authorised signatory.
-- Invoice bank fields currently show a dash because bank details are not stored yet. Never hardcode values from a screenshot.
+- Invoice bank details are stored on CompanySetting (bank_name, bank_account_number, bank_branch, bank_ifsc) and edited in Admin Settings. The bank block falls back to an em dash while a value is unset. Never hardcode values from a screenshot.
+- Bank details are excluded from the unauthenticated /api/settings/public response.
 
 Circulars/notifications:
 
@@ -117,11 +118,11 @@ Containers:
 - talco-v1-web — Nginx gateway.
 - Only 127.0.0.1:8002 is published.
 
-Current migration: 0016_user_username (head).
+Current migration: 0017_company_bank_details (head).
 
 Latest verification:
 
-- Backend: 83 tests passed.
+- Backend: 85 tests passed.
 - Frontend TypeScript/Vite production build passed.
 - Tally invoice generated and rendered for visual A4 inspection.
 - Production API/web/database containers healthy.
@@ -163,7 +164,7 @@ Backend verification:
     docker compose build api
     docker compose run --rm api pytest -q
 
-Current expected result: 83 passed.
+Current expected result: 85 passed.
 
 Frontend verification:
 
@@ -175,7 +176,7 @@ Migration verification:
 
     docker compose run --rm api alembic upgrade head
 
-The next migration must follow 0016_user_username. Test every migration against PostgreSQL.
+The next migration must follow 0017_company_bank_details. Test every migration against PostgreSQL.
 
 ## 7. Git workflow
 
@@ -274,17 +275,11 @@ SMTP and WhatsApp credentials are stored through Admin Settings in PostgreSQL. S
 
 ## 11. Recommended next work
 
-### Company bank details
+### Charge head description duplication
 
-The invoice layout is ready but bank values are blank. Recommended:
-
-1. Add bank_name, bank_account_number, bank_branch and bank_ifsc to CompanySetting.
-2. Add migration 0017_company_bank_details.
-3. Add Admin Settings fields and API serialization.
-4. Use these fields in invoice_pdf.py.
-5. Test and visually render A4 output.
-
-Never copy the sample screenshot's bank details.
+The invoice service line renders as "Treatment Charges Raised Raised A/c" because
+the charge-head name already ends in "Raised" and the template appends " Raised A/c".
+Cosmetic only; fix the template suffix, not the master data.
 
 ### Production UAT
 

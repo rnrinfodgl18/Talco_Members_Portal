@@ -101,3 +101,31 @@ def test_admin_whatsapp_settings_and_member_phone_verification(master_api, monke
     confirmed = client.post("/api/auth/phone-verification/confirm", headers=headers["member"], json={"code":"123456"})
     assert confirmed.status_code == 200, confirmed.text
     assert client.get("/api/auth/me", headers=headers["member"]).json()["phone_verified"] is True
+
+
+def test_company_bank_details_round_trip_and_stay_off_public_endpoint(master_api):
+    client, headers, factory = master_api
+    company={"company_name":"TALCO Test Ltd","short_name":"TALCO","address":"Road","city":"Dindigul",
+        "state":"Tamil Nadu","postal_code":"624002","gstin":"33TEST","phone":"123",
+        "email":"office@example.test","website":"https://example.test",
+        "bank_name":"Test Bank","bank_account_number":"000111222333","bank_branch":"Dindigul Main",
+        "bank_ifsc":"TEST0001234"}
+    saved=client.put("/api/settings/company",headers=headers["talco_admin"],json=company)
+    assert saved.status_code==200
+    assert saved.json()["bank_account_number"]=="000111222333"
+    settings=client.get("/api/settings",headers=headers["talco_admin"]).json()
+    assert settings["company"]["bank_name"]=="Test Bank"
+    assert settings["company"]["bank_ifsc"]=="TEST0001234"
+    public=client.get("/api/settings/public").json()
+    for key in ("bank_name","bank_account_number","bank_branch","bank_ifsc"):
+        assert key not in public
+    with factory() as session:
+        assert session.get(CompanySetting,1).bank_branch=="Dindigul Main"
+
+
+def test_invoice_bank_block_uses_stored_values_and_falls_back_to_dash():
+    from app.services.invoice_pdf import _or_dash
+    assert _or_dash("Test Bank")=="Test Bank"
+    assert _or_dash("  ")=="\u2014"
+    assert _or_dash(None)=="\u2014"
+    assert _or_dash("A & B Bank")=="A &amp; B Bank"

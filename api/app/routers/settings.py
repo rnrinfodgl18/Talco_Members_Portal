@@ -27,6 +27,10 @@ class CompanyInput(BaseModel):
     phone: str | None = Field(default=None, max_length=30)
     email: str | None = Field(default=None, max_length=255)
     website: str | None = Field(default=None, max_length=255)
+    bank_name: str | None = Field(default=None, max_length=255)
+    bank_account_number: str | None = Field(default=None, max_length=50)
+    bank_branch: str | None = Field(default=None, max_length=255)
+    bank_ifsc: str | None = Field(default=None, max_length=20)
 
 
 class SmtpInput(BaseModel):
@@ -122,6 +126,13 @@ def _company(row: CompanySetting) -> dict:
         "postal_code", "gstin", "phone", "email", "website")} | {"has_logo": bool(row.logo_data)}
 
 
+# Bank details are deliberately kept out of _company() so the unauthenticated
+# /public endpoint never exposes them. Authenticated callers get them merged in.
+def _bank(row: CompanySetting) -> dict:
+    return {key: getattr(row, key) for key in ("bank_name", "bank_account_number",
+        "bank_branch", "bank_ifsc")}
+
+
 def _smtp(row: CompanySetting) -> dict:
     return {key: getattr(row, key) for key in ("smtp_host", "smtp_port", "smtp_username",
         "smtp_from_email", "smtp_from_name", "smtp_security", "smtp_enabled")} | {
@@ -153,7 +164,7 @@ def logo(session: Session = Depends(get_db)):
 @router.get("")
 def get_settings(user: User = Depends(current_user), session: Session = Depends(get_db)):
     row = _settings(session)
-    result = {"company": _company(row), "theme": _theme(row)}
+    result = {"company": _company(row) | _bank(row), "theme": _theme(row)}
     if user.role == "talco_admin":
         result["smtp"] = _smtp(row)
         result["whatsapp"] = _whatsapp(row)
@@ -164,10 +175,10 @@ def get_settings(user: User = Depends(current_user), session: Session = Depends(
 def update_company(data: CompanyInput, actor: User = Depends(require_roles("talco_admin")),
                    session: Session = Depends(get_db)):
     row = _settings(session)
-    before = _company(row)
+    before = _company(row) | _bank(row)
     for key, value in data.model_dump().items():
         setattr(row, key, value.strip() if isinstance(value, str) else value)
-    after = _company(row)
+    after = _company(row) | _bank(row)
     session.add(AuditLog(entity_type="company_setting", entity_id=1, action="update",
         changed_by=actor.email, changes=json.dumps({"from": before, "to": after})))
     session.commit()
