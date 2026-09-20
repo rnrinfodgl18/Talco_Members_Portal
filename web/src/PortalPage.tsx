@@ -16,7 +16,7 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
  const [company,setCompany]=useState<any>({});
  const [dashboard,setDashboard]=useState<Dashboard|null>(null),[ledger,setLedger]=useState<StatementEntry[]>([]),[history,setHistory]=useState<HistoryEntry[]>([]);
  const [error,setError]=useState(""),[loading,setLoading]=useState(true),[accountsLoading,setAccountsLoading]=useState(true);
- const [version,setVersion]=useState(0),[tab,setTab]=useState<Tab>(initialTab),[invoice,setInvoice]=useState<InvoiceDetail|null>(null);
+ const [version,setVersion]=useState(0),[tab,setTab]=useState<Tab>(initialTab),[invoice,setInvoice]=useState<InvoiceDetail|null>(null),[invoicePdfUrl,setInvoicePdfUrl]=useState("");
  useEffect(()=>{api("/api/settings/public").then(setCompany).catch(()=>{})},[]);
  useEffect(()=>setTab(initialTab),[initialTab]);
  useEffect(()=>{let active=true;setAccountsLoading(true);setError("");api("/api/portal/accounts").then((items:Account[])=>{if(!active)return;setAccounts(items);setSelected(current=>items.some(item=>String(item.id)===current)?current:String(items.find(item=>item.id===initialAccountId)?.id??items[0]?.id??""))}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setAccountsLoading(false)});return()=>{active=false}},[initialAccountId,version]);
@@ -24,7 +24,9 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
  const account=accounts.find(item=>String(item.id)===selected);
  const premises=account?[...new Set(account.tanneries.map(item=>item.name+" ("+relationship(item.role)+")"))].join(" / "):"";
  const printView=(kind:"ledger"|"invoice")=>{document.body.dataset.print=kind;const cleanup=()=>{delete document.body.dataset.print};window.addEventListener("afterprint",cleanup,{once:true});window.print();setTimeout(cleanup,1000)};
- const showInvoice=(id:number)=>api("/api/portal/invoices/"+id).then(setInvoice).catch(e=>setError(e.message));
+ const showInvoice=async(id:number)=>{try{setError("");const [detail,response]=await Promise.all([api("/api/portal/invoices/"+id),fetch("/api/portal/invoices/"+id+"/pdf")]);if(!response.ok)throw new Error("Invoice PDF preview failed");if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoice(detail);setInvoicePdfUrl(URL.createObjectURL(await response.blob()))}catch(e){setError((e as Error).message)}};
+ const closeInvoice=()=>{if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoicePdfUrl("");setInvoice(null)};
+ const printInvoice=()=>{const frame=document.getElementById("official-invoice-preview") as HTMLIFrameElement|null;frame?.contentWindow?.focus();frame?.contentWindow?.print()};
  const showReceipt=async(id:number)=>{try{const response=await fetch("/api/portal/receipts/"+id+"/pdf");if(!response.ok)throw new Error("Receipt PDF download failed");const blob=await response.blob(),url=URL.createObjectURL(blob);window.open(url,"_blank");setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){setError((e as Error).message)}};
  const downloadInvoice=async()=>{if(!invoice)return;try{const response=await fetch(`/api/portal/invoices/${invoice.id}/pdf`);if(!response.ok)throw new Error("PDF download failed");const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download=`TALCO-Invoice-${sourceDisplay(invoice.voucher_no)}.pdf`;link.click();URL.revokeObjectURL(url)}catch(e){setError((e as Error).message)}};
  return <section className="ledger-print mx-auto max-w-7xl p-5 lg:p-8">
@@ -40,14 +42,17 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
    <nav aria-label="Statement views" className="no-print mb-4 mt-6 flex flex-wrap gap-2">{([["statement","Statement"],["invoices","All bills"],["receipts","All payments"]] as [Tab,string][]).map(([key,label])=><button key={key} aria-current={tab===key?"page":undefined} onClick={()=>setTab(key)} className={"rounded-xl px-4 py-2 "+(tab===key?"bg-cyan-400 font-bold text-slate-950":"bg-slate-800 text-slate-300")}>{label}</button>)}{tab==="statement"&&<button onClick={()=>printView("ledger")} className="ui-action ui-action-print">Print / Save PDF</button>}</nav>
    {tab==="statement"?<><p className="no-print mb-4 text-sm text-slate-400">Charges increase the amount due. Payments reduce it. Extra payments appear as advance / credit.</p><StatementTable rows={ledger}/></>:<HistoryTable rows={history} kind={tab==="invoices"?"invoice":"receipt"} onView={tab==="invoices"?showInvoice:showReceipt}/>}
   </>}
-  {invoice&&<div className="no-print fixed inset-0 z-50 overflow-y-auto bg-slate-950/90 p-4 md:p-10"><div className="invoice-sheet mx-auto max-w-3xl rounded-2xl bg-white p-7 text-slate-900 shadow-2xl md:p-10">
-   <div className="flex items-start justify-between gap-4 border-b-2 border-slate-900 pb-5"><div><p className="text-sm font-bold uppercase tracking-widest">TALCO-DINTEC CETP</p><h2 className="mt-2 text-3xl font-black">Invoice Copy</h2></div><div className="text-right"><p className="text-sm text-slate-500">Invoice number</p><p className="text-xl font-bold">{sourceDisplay(invoice.voucher_no)}</p><p className="mt-1 text-sm">{formatDate(invoice.date)}</p></div></div>
-   <div className="grid gap-5 border-b border-slate-300 py-6 sm:grid-cols-2"><div><p className="text-xs uppercase text-slate-500">Bill to</p><p className="mt-1 text-lg font-bold">{invoice.account}</p><p>{invoice.account_code}</p></div><div><p className="text-xs uppercase text-slate-500">Premises</p><p className="mt-1 font-semibold">{invoice.tannery}</p>{invoice.tannery_gstin&&<p>GSTIN: {invoice.tannery_gstin}</p>}<p>Financial year: {invoice.fy}</p></div></div>
-   <table className="mt-6 w-full"><thead><tr className="border-b border-slate-400 text-left"><th className="py-3">Description</th><th className="py-3 text-right">Amount</th></tr></thead><tbody><tr className="border-b border-slate-200"><td className="py-4">{invoice.charge_head}</td><td className="py-4 text-right">{formatMoney(invoice.base)}</td></tr><tr><td className="py-2">CGST</td><td className="py-2 text-right">{formatMoney(invoice.cgst)}</td></tr><tr><td className="py-2">SGST</td><td className="py-2 text-right">{formatMoney(invoice.sgst)}</td></tr><tr className="border-t-2 border-slate-900 text-xl font-bold"><td className="py-4">Invoice total</td><td className="py-4 text-right">{formatMoney(invoice.gross)}</td></tr></tbody></table>
-   {invoice.revision_count>0&&<p className="mt-5 rounded-lg bg-amber-50 p-3 text-sm">This invoice has {invoice.revision_count} approved correction{invoice.revision_count===1?"":"s"}. The latest approved value is shown.</p>}
-   <p className="mt-8 border-t border-slate-300 pt-4 text-xs text-slate-500">System generated invoice copy from the TALCO-DINTEC member portal.</p>
-   <div className="invoice-actions mt-6 grid gap-3 sm:flex sm:flex-wrap sm:justify-end"><button onClick={()=>setInvoice(null)} className="rounded-lg bg-slate-200 px-4 py-2">Close</button><button onClick={downloadInvoice} className="ui-action ui-action-print">Download official PDF</button><button onClick={()=>printView("invoice")} className="ui-action ui-action-print">Print invoice</button></div>
-  </div></div>}
+  {invoice&&<div className="no-print fixed inset-0 z-50 flex flex-col bg-slate-950/90 p-2 sm:p-4">
+   <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 rounded-t-xl bg-white p-3 shadow-xl">
+    <div className="mr-auto min-w-0"><b className="block truncate text-slate-900">Tax Invoice · {sourceDisplay(invoice.voucher_no)}</b><span className="text-xs text-slate-500">{invoice.account} · {formatDate(invoice.date)}</span></div>
+    <button onClick={downloadInvoice} className="ui-action ui-action-print">Download PDF</button>
+    <button onClick={printInvoice} className="ui-action ui-action-print">Print Invoice</button>
+    <button onClick={closeInvoice} className="rounded-lg bg-slate-200 px-4 py-2 font-semibold text-slate-800">Close</button>
+   </div>
+   <div className="mx-auto min-h-0 w-full max-w-5xl flex-1 overflow-hidden rounded-b-xl bg-slate-200 shadow-xl">
+    {invoicePdfUrl?<iframe id="official-invoice-preview" title="Official tax invoice preview" src={invoicePdfUrl} className="h-full min-h-[70vh] w-full border-0 bg-white"/>:<div className="grid h-full place-items-center text-slate-600">Preparing official invoice…</div>}
+   </div>
+  </div>}
  </section>;
 }
 
