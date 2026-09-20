@@ -41,10 +41,13 @@ class SmtpInput(BaseModel):
 
 
 _THEME_DEFAULTS = {
-    "theme_name": "TALCO Professional", "background_color": "#f6f8f7", "surface_color": "#ffffff",
-    "font_color": "#17231e", "muted_color": "#52645d", "primary_color": "#087f5b",
-    "primary_text_color": "#ffffff", "edit_color": "#9a6700", "view_color": "#075985",
-    "print_color": "#087f5b", "danger_color": "#c92a2a", "border_color": "#cfd8d4"
+    "theme_name": "DINTEC Demo", "background_color": "#f1f5f9", "surface_color": "#ffffff",
+    "font_color": "#0b1739", "muted_color": "#5b6b89", "primary_color": "#06c98b",
+    "primary_text_color": "#061b18", "edit_color": "#d97706", "view_color": "#2563eb",
+    "print_color": "#0f766e", "danger_color": "#e11d48", "border_color": "#d9e1ec",
+    "header_color": "#102f4f", "sidebar_color": "#0e1830", "sidebar_text_color": "#d8e4f4",
+    "active_nav_color": "#246bfe", "accent_color": "#234396", "success_color": "#00a878",
+    "warning_color": "#f4b400"
 }
 
 class ThemeInput(BaseModel):
@@ -60,6 +63,13 @@ class ThemeInput(BaseModel):
     print_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
     danger_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
     border_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    header_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    sidebar_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    sidebar_text_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    active_nav_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    accent_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    success_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    warning_color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 def _theme(row: CompanySetting) -> dict:

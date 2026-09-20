@@ -49,10 +49,10 @@ def test_admin_and_member_dashboards_are_role_scoped(master_api):
     client, headers, _ = master_api
     admin = client.get("/api/dashboard/admin", headers=headers["talco_admin"])
     assert admin.status_code == 200
-    assert {"tanneries","members","unverified_emails","outstanding","recent_imports"} <= admin.json().keys()
+    assert {"tanneries","members","unverified_emails","outstanding","recent_imports","pending_mappings"} <= admin.json().keys()
     assert client.get("/api/dashboard/admin", headers=headers["member"]).status_code == 403
     member = client.get("/api/dashboard/member", headers=headers["member"])
     assert member.status_code == 200
-    assert {"accounts","total_outstanding","unread_notifications","email_verified"} <= member.json().keys()
+    assert {"accounts","total_outstanding","unread_notifications","email_verified","latest_invoice","latest_receipt","recent_invoices","notice_summary"} <= member.json().keys()
     assert client.get("/api/notifications/delivery-log", headers=headers["talco_staff"]).status_code == 403
     assert client.get("/api/notifications/delivery-log", headers=headers["talco_admin"]).status_code == 200

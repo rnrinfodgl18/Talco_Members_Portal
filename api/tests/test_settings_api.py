@@ -65,7 +65,10 @@ def test_admin_can_publish_theme_for_all_users(master_api):
         "theme_name": "High Visibility", "background_color": "#f4f4f4", "surface_color": "#ffffff",
         "font_color": "#111111", "muted_color": "#444444", "primary_color": "#005f46",
         "primary_text_color": "#ffffff", "edit_color": "#8a4b00", "view_color": "#004b76",
-        "print_color": "#005f46", "danger_color": "#b42318", "border_color": "#b8c2bd"
+        "print_color": "#005f46", "danger_color": "#b42318", "border_color": "#b8c2bd",
+        "header_color": "#102f4f", "sidebar_color": "#0e1830", "sidebar_text_color": "#d8e4f4",
+        "active_nav_color": "#246bfe", "accent_color": "#234396", "success_color": "#00a878",
+        "warning_color": "#f4b400"
     }
     assert client.put("/api/settings/theme", headers=headers["talco_staff"], json=theme).status_code == 403
     response = client.put("/api/settings/theme", headers=headers["talco_admin"], json=theme)
