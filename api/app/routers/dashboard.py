@@ -63,7 +63,11 @@ def member_dashboard(user: User = Depends(current_user), session: Session = Depe
         Notification.user_id == user.id, Notification.read_at.is_(None))) or 0
     notices = session.scalars(select(Notification).where(Notification.user_id == user.id)
         .order_by(Notification.created_at.desc()).limit(3)).all()
+    last_sync = session.scalar(select(ImportBatch).where(ImportBatch.status == "posted")
+        .order_by(ImportBatch.uploaded_at.desc()).limit(1))
     return {"accounts": summaries, "total_outstanding": str(total), "unread_notifications": unread,
+            "last_sync_at": last_sync.uploaded_at.isoformat() if last_sync and last_sync.uploaded_at else None,
+            "last_sync_file": last_sync.file_name if last_sync else None,
             "email_verified": bool(user.email_verified_at),
             "latest_invoice": None if not recent_invoices else {"id": recent_invoices[0].id,
                 "voucher_no": recent_invoices[0].voucher_no, "date": recent_invoices[0].invoice_date.isoformat(),

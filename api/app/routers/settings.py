@@ -2,7 +2,7 @@ import json
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -97,6 +97,7 @@ class SmtpTestInput(BaseModel):
 
 
 class ProfileInput(BaseModel):
+    username: str | None = Field(default=None, min_length=3, max_length=80, pattern=r"^[A-Za-z0-9._-]+$")
     display_name: str | None = Field(default=None, max_length=120)
     email: str = Field(min_length=3, max_length=255)
     phone: str | None = Field(default=None, max_length=30)
@@ -288,7 +289,11 @@ def test_whatsapp(data: WhatsAppTestInput, actor: User = Depends(require_roles("
 
 @router.put("/profile")
 def update_profile(data: ProfileInput, user: User = Depends(current_user), session: Session = Depends(get_db)):
-    before = {"display_name": user.display_name, "email": user.email, "phone": user.phone}
+    before = {"username": user.username, "display_name": user.display_name, "email": user.email, "phone": user.phone}
+    username = data.username.strip().lower() if data.username else None
+    if username and session.scalar(select(User.id).where(func.lower(User.username) == username, User.id != user.id)):
+        raise HTTPException(409, "This username is already used by another login")
+    user.username = username
     user.display_name = data.display_name.strip() if data.display_name else None
     if user.email != data.email.strip().lower():
         user.email_verified_at = None
@@ -300,12 +305,12 @@ def update_profile(data: ProfileInput, user: User = Depends(current_user), sessi
     try:
         session.add(AuditLog(entity_type="user_profile", entity_id=user.id, action="update",
             changed_by=before["email"], changes=json.dumps({"from": before,
-                "to": {"display_name": user.display_name, "email": user.email, "phone": user.phone}})))
+                "to": {"username": user.username, "display_name": user.display_name, "email": user.email, "phone": user.phone}})))
         session.commit()
     except IntegrityError as exc:
         session.rollback()
         raise HTTPException(409, "This email is already used by another login") from exc
-    return {"id": user.id, "display_name": user.display_name, "email": user.email,
+    return {"id": user.id, "username": user.username, "display_name": user.display_name, "email": user.email,
             "phone": user.phone, "role": user.role, "email_verified": bool(user.email_verified_at),
             "phone_verified": bool(user.phone_verified_at)}
 

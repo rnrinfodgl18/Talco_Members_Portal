@@ -31,10 +31,19 @@ def serialize(row: Notification) -> dict:
 
 
 @router.get("")
-def list_notifications(user: User = Depends(current_user), session: Session = Depends(get_db)):
-    rows = session.scalars(select(Notification).where(Notification.user_id == user.id)
-                           .order_by(Notification.created_at.desc()).limit(100)).all()
-    return {"unread": sum(row.read_at is None for row in rows), "items": [serialize(row) for row in rows]}
+def list_notifications(page: int = 1, page_size: int = 10, status: str = "all",
+                       user: User = Depends(current_user), session: Session = Depends(get_db)):
+    page, page_size = max(1, page), min(50, max(1, page_size))
+    base = select(Notification).where(Notification.user_id == user.id)
+    if status == "read": base = base.where(Notification.read_at.is_not(None))
+    elif status == "unread": base = base.where(Notification.read_at.is_(None))
+    total = session.scalar(select(func.count()).select_from(base.subquery())) or 0
+    unread = session.scalar(select(func.count()).select_from(Notification).where(
+        Notification.user_id == user.id, Notification.read_at.is_(None))) or 0
+    rows = session.scalars(base.order_by(Notification.created_at.desc())
+                           .offset((page - 1) * page_size).limit(page_size)).all()
+    return {"unread": unread, "items": [serialize(row) for row in rows], "page": page,
+            "page_size": page_size, "total": total, "pages": max(1, (total + page_size - 1) // page_size)}
 
 
 @router.post("/{notification_id}/read")
@@ -46,6 +55,16 @@ def mark_read(notification_id: int, user: User = Depends(current_user), session:
     row.read_at = row.read_at or datetime.now(timezone.utc)
     session.commit()
     return {"status": "read"}
+
+
+@router.post("/{notification_id}/unread")
+def mark_unread(notification_id: int, user: User = Depends(current_user), session: Session = Depends(get_db)):
+    row = session.scalar(select(Notification).where(Notification.id == notification_id,
+                                                     Notification.user_id == user.id))
+    if not row: raise HTTPException(404, "Notification not found")
+    row.read_at = None
+    session.commit()
+    return {"status": "unread"}
 
 
 @router.post("/read-all")

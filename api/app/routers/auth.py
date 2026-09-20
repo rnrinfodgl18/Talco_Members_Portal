@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -20,7 +20,8 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 class Credentials(BaseModel):
-    email: str
+    identifier: str | None = None
+    email: str | None = None
     password: str
 
 
@@ -67,7 +68,9 @@ def bootstrap(request: Credentials, session: Session = Depends(get_db)):
     if session.scalar(select(func.count()).select_from(User)):
         raise HTTPException(409, "Bootstrap is already complete")
     try:
-        user = User(email=request.email.lower(), password_hash=hash_password(request.password),
+        email = (request.email or request.identifier or "").strip().lower()
+        if "@" not in email: raise HTTPException(422, "A valid email is required")
+        user = User(email=email, password_hash=hash_password(request.password),
                     role="talco_admin", must_set_password=False)
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
@@ -77,9 +80,16 @@ def bootstrap(request: Credentials, session: Session = Depends(get_db)):
 
 @router.post("/login")
 def login(request: Credentials, session: Session = Depends(get_db)):
-    user = session.scalar(select(User).where(User.email == request.email.lower()))
+    identifier = (request.identifier or request.email or "").strip()
+    key = identifier.lower()
+    user = session.scalar(select(User).where(or_(func.lower(User.email) == key, func.lower(User.username) == key)))
+    if not user:
+        digits = "".join(ch for ch in identifier if ch.isdigit())
+        matches = [row for row in session.scalars(select(User).where(User.phone.is_not(None)))
+                   if "".join(ch for ch in (row.phone or "") if ch.isdigit())[-10:] == digits[-10:]]
+        user = matches[0] if len(matches) == 1 and digits else None
     if not user or not user.active or not verify_password(request.password, user.password_hash):
-        raise HTTPException(401, "Invalid email or password")
+        raise HTTPException(401, "Invalid username, email, phone, or password")
     if user.must_set_password:
         raise HTTPException(403, "Use your invitation link to set a password")
     return {"access_token": issue_token(session, user, hours=SESSION_HOURS), "user": serialize_user(user)}
@@ -95,6 +105,11 @@ def logout(user: User = Depends(current_user), session: Session = Depends(get_db
 @router.get("/me")
 def me(user: User = Depends(current_user)):
     return serialize_user(user)
+
+
+@router.post("/keep-alive")
+def keep_alive(user: User = Depends(current_user)):
+    return {"status": "active", "user": serialize_user(user)}
 
 
 @router.post("/invite")
@@ -252,7 +267,7 @@ def reset_password(request: TokenPassword, session: Session = Depends(get_db)):
 
 
 def serialize_user(user: User) -> dict:
-    return {"id": user.id, "email": user.email, "display_name": user.display_name, "phone": user.phone,
+    return {"id": user.id, "email": user.email, "username": user.username, "display_name": user.display_name, "phone": user.phone,
             "role": user.role, "tannery_id": user.tannery_id, "party_id": user.party_id,
             "must_set_password": user.must_set_password, "email_verified": bool(user.email_verified_at),
             "phone_verified": bool(user.phone_verified_at)}

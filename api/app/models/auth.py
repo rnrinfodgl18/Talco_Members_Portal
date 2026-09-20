@@ -13,6 +13,7 @@ class User(Base):
     __tablename__ = "app_user"
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    username: Mapped[str | None] = mapped_column(String(80), unique=True)
     display_name: Mapped[str | None] = mapped_column(String(120))
     phone: Mapped[str | None] = mapped_column(String(30))
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

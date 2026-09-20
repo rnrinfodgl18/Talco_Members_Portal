@@ -9,7 +9,7 @@ from app.models.auth import User
 from app.models.entities import ChargeHead, Invoice, InvoiceRevision, Party, Receipt, Tannery, TanneryPartyLink
 from app.security import current_user
 from app.services.scope import scoped_query, user_scope
-from app.services.invoice_pdf import invoice_pdf
+from app.services.invoice_pdf import invoice_pdf, receipt_pdf
 
 router = APIRouter(prefix='/api/portal', tags=['portal'])
 
@@ -181,3 +181,34 @@ def receipts(tannery_id: int | None = None, party_id: int | None = None,
         query = query.where(Receipt.party_id == party_id)
     return [{'id': x.id, 'voucher_no': x.voucher_no, 'date': x.receipt_date.isoformat(),
              'amount': money(x.amount), 'is_step': x.is_step} for x in session.scalars(query)]
+
+
+@router.get('/receipts/{receipt_id}')
+def receipt_detail(receipt_id: int, user: User = Depends(current_user), session: Session = Depends(get_db)):
+    existing = session.get(Receipt, receipt_id)
+    if not existing: raise HTTPException(404, 'Receipt not found')
+    found = session.scalar(scoped_query(select(Receipt).where(Receipt.id == receipt_id,
+        Receipt.is_cancelled.is_(False)), Receipt, user))
+    if not found: raise HTTPException(403, 'Receipt is outside your account scope')
+    party, tannery = session.get(Party, found.party_id), session.get(Tannery, found.tannery_id)
+    from app.models.entities import ReceiptAllocation
+    allocations = session.scalars(select(ReceiptAllocation).where(ReceiptAllocation.receipt_id == found.id)).all()
+    return {'id': found.id, 'voucher_no': found.voucher_no, 'fy': found.fy,
+        'date': found.receipt_date.isoformat(), 'account': party.name if party else '',
+        'account_code': f'ACC-{party.id:04d}' if party else '', 'tannery': tannery.name if tannery else '',
+        'amount': money(found.amount), 'is_step': found.is_step,
+        'references': [{'bill_ref': row.bill_ref, 'amount': money(row.amount)} for row in allocations]}
+
+
+@router.get('/receipts/{receipt_id}/pdf')
+def receipt_download(receipt_id: int, user: User = Depends(current_user), session: Session = Depends(get_db)):
+    existing = session.get(Receipt, receipt_id)
+    if not existing: raise HTTPException(404, 'Receipt not found')
+    found = session.scalar(scoped_query(select(Receipt).where(Receipt.id == receipt_id,
+        Receipt.is_cancelled.is_(False)), Receipt, user))
+    if not found: raise HTTPException(403, 'Receipt is outside your account access')
+    content = receipt_pdf(session, found)
+    safe = ''.join(ch for ch in found.voucher_no if ch.isalnum() or ch in '-_') or str(found.id)
+    return Response(content, media_type='application/pdf', headers={
+        'Content-Disposition': f'attachment; filename="TALCO-Receipt-{safe}.pdf"',
+        'Cache-Control': 'private, no-store'})

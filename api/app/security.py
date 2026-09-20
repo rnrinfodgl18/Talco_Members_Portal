@@ -76,6 +76,9 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
         raise HTTPException(401, "Account is inactive")
     if user.must_set_password:
         raise HTTPException(403, "Password setup required")
+    if token.expires_at.replace(tzinfo=timezone.utc) < now + timedelta(days=30):
+        token.expires_at = now + timedelta(hours=SESSION_HOURS)
+        session.commit()
     return user
 
 

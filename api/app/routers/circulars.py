@@ -75,6 +75,28 @@ def manage(_: User = Depends(require_roles("talco_admin", "talco_staff")),
     return [_summary(session, row) for row in rows]
 
 
+
+
+@router.get("/page")
+def notice_board_page(page: int = 1, page_size: int = 10, status: str = "all",
+                      user: User = Depends(current_user), session: Session = Depends(get_db)):
+    page, page_size = max(1, page), min(50, max(1, page_size))
+    now = datetime.now(timezone.utc)
+    query = select(Circular).where(Circular.status == "published", Circular.published_at.is_not(None),
+        Circular.published_at <= now, or_(Circular.expires_on.is_(None), Circular.expires_on >= date.today()))
+    if user.role not in {"talco_admin", "talco_staff"}:
+        selected_ids = select(CircularRecipient.circular_id).where(CircularRecipient.user_id == user.id)
+        query = query.where(or_(Circular.audience == "all", Circular.id.in_(selected_ids)))
+    read_ids = select(CircularRead.circular_id).where(CircularRead.user_id == user.id)
+    if status == "read": query = query.where(Circular.id.in_(read_ids))
+    elif status == "unread": query = query.where(Circular.id.not_in(read_ids))
+    total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = session.scalars(query.order_by(Circular.published_at.desc(), Circular.id.desc())
+        .offset((page - 1) * page_size).limit(page_size)).all()
+    return {"items": [_summary(session, row, user.id) for row in rows], "page": page,
+        "page_size": page_size, "total": total, "pages": max(1, (total + page_size - 1) // page_size)}
+
+
 @router.get("")
 def notice_board(user: User = Depends(current_user), session: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
@@ -158,6 +180,16 @@ def mark_read(circular_id: int, user: User = Depends(current_user), session: Ses
         session.add(CircularRead(circular_id=circular_id, user_id=user.id))
         session.commit()
     return {"status": "read"}
+
+
+@router.post("/{circular_id}/unread")
+def mark_unread(circular_id: int, user: User = Depends(current_user), session: Session = Depends(get_db)):
+    _visible(session, user, circular_id)
+    row = session.get(CircularRead, (circular_id, user.id))
+    if row:
+        session.delete(row)
+        session.commit()
+    return {"status": "unread"}
 
 
 @router.get("/{circular_id}/attachment")
