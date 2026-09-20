@@ -1,7 +1,7 @@
 # TALCO-DINTEC Member Portal — Development Handoff
 
 Last updated: 20 September 2026
-Stable Git commit: e218b78
+Stable Git commit: 29dd856
 Branch: codex/dintec-demo-ui
 Repository: https://github.com/rnrinfodgl18/Talco_Members_Portal
 Production: https://talco.smartiva.tech
@@ -25,8 +25,9 @@ Backend: Python 3.12, FastAPI, SQLAlchemy, Alembic, PostgreSQL 16, WeasyPrint an
 - api/app/routers/ — API endpoints.
 - api/app/services/import_parser.py — Excel/XML import parser.
 - api/app/services/invoice_pdf.py — Tally-style invoice and receipt PDFs.
-- api/app/services/scope.py — shared member/account access scoping.
-- api/app/services/notifications.py — email and push delivery.
+- api/app/services/scope.py — shared member/account access scoping, including the lessee lease window.
+- api/app/services/notifications.py — email (with attachments) and push delivery.
+- api/app/services/bill_dispatch.py — sends posted bills by email and WhatsApp.
 - api/app/services/whatsapp.py — FII Tech WhatsApp API.
 - api/alembic/versions/ — migrations.
 - api/tests/ — regression tests.
@@ -36,12 +37,13 @@ Frontend: React, TypeScript, Vite, Tailwind utilities, shared CSS tokens and PWA
 - web/src/App.tsx — authenticated shell, navigation and session restore.
 - web/src/DashboardPage.tsx — admin/member dashboards.
 - web/src/PortalPage.tsx — ledger, invoices, receipts and PDF preview.
-- web/src/ImportsPage.tsx — imports and correction review.
+- web/src/ImportsPage.tsx — imports, correction review and bill dispatch.
+- web/src/ReportsPage.tsx — admin outstanding summary.
 - web/src/CircularsPage.tsx — circular and notice board.
 - web/src/SettingsPage.tsx — profile/company/SMTP/WhatsApp settings.
 - web/src/styles.css — DINTEC UI system and legacy-colour normalization.
 - web/src/theme.ts — active theme tokens.
-- web/public/sw.js — PWA cache; current key talco-shell-v7.
+- web/public/sw.js — PWA cache; current key talco-shell-v8.
 
 ## 3. Completed functionality
 
@@ -122,7 +124,7 @@ Current migration: 0017_company_bank_details (head).
 
 Latest verification:
 
-- Backend: 85 tests passed.
+- Backend: 95 tests passed.
 - Frontend TypeScript/Vite production build passed.
 - Tally invoice generated and rendered for visual A4 inspection.
 - Production API/web/database containers healthy.
@@ -164,7 +166,7 @@ Backend verification:
     docker compose build api
     docker compose run --rm api pytest -q
 
-Current expected result: 85 passed.
+Current expected result: 95 passed.
 
 Frontend verification:
 
@@ -271,15 +273,33 @@ SMTP and WhatsApp credentials are stored through Admin Settings in PostgreSQL. S
 - /api/circulars — notice board/attachments/read/pagination.
 - /api/notifications — notification state/subscriptions/logs.
 - /api/settings — profile/company/logo/SMTP/WhatsApp.
+- /api/reports — admin outstanding summary (JSON and CSV).
 - /health — application/database health.
 
 ## 11. Recommended next work
 
-### Charge head description duplication
+### Remaining Phase 1 gaps
 
-The invoice service line renders as "Treatment Charges Raised Raised A/c" because
-the charge-head name already ends in "Raised" and the template appends " Raised A/c".
-Cosmetic only; fix the template suffix, not the master data.
+Not yet built, in the order they were agreed with the client:
+
+1. Month-wise collection, head-wise revenue and member-wise ledger reports.
+   The outstanding summary is done.
+2. Statement Excel export, member-selectable date range, and the head-wise
+   statement variant. Keep the dashboard combined - do not add per-head tiles.
+3. Circular targeting for role-wise and dynamic "everyone with outstanding"
+   audiences. Only "all" and "selected" exist. The dynamic audience is a live
+   query evaluated at send time, snapshotting who it resolved to.
+4. English/Tamil i18n. No scaffolding exists and every screen is hardcoded
+   English. UI labels in both; bill and statement content stays English.
+5. Batch versioning keyed on (head, period), and flagging invoices whose
+   values changed after dispatch with a "changed since sent - resend?" action.
+   Bill dispatch now records a notification per invoice, so that flag has
+   something to compare against.
+6. Admin "print credentials" action. The office will hand over 60+ logins.
+
+Hosting is still talco.smartiva.tech. The client asked for
+portal.talcodintec.com, which needs a CNAME from whoever runs that domain
+plus TLS for the subdomain.
 
 ### Production UAT
 
