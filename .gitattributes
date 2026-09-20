@@ -1,0 +1,14 @@
+# Normalise line endings so Windows editors do not produce CRLF-only diffs.
+* text=auto eol=lf
+
+# Binary / generated assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.xlsx binary
+*.xlsm binary
