@@ -42,8 +42,8 @@ class SmtpInput(BaseModel):
 
 _THEME_DEFAULTS = {
     "theme_name": "DINTEC Demo", "background_color": "#f1f5f9", "surface_color": "#ffffff",
-    "font_color": "#0b1739", "muted_color": "#5b6b89", "primary_color": "#06c98b",
-    "primary_text_color": "#061b18", "edit_color": "#d97706", "view_color": "#2563eb",
+    "font_color": "#0b1739", "muted_color": "#5b6b89", "primary_color": "#008f72",
+    "primary_text_color": "#ffffff", "edit_color": "#d97706", "view_color": "#2563eb",
     "print_color": "#0f766e", "danger_color": "#e11d48", "border_color": "#d9e1ec",
     "header_color": "#102f4f", "sidebar_color": "#0e1830", "sidebar_text_color": "#d8e4f4",
     "active_nav_color": "#246bfe", "accent_color": "#234396", "success_color": "#00a878",
