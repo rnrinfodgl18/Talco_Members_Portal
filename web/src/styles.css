@@ -380,3 +380,66 @@ main input,main select,main textarea { border-color:var(--erp-border)!important;
 .auth-card button[type="submit"]{background:#246bfe!important;color:#fff!important}
 .auth-card button[type="submit"]:hover{background:#175cd3!important}
 @media(max-width:860px){.auth-brand-panel{background:linear-gradient(135deg,#071a33,#173f68)!important}}
+
+/* Final theme compatibility layer.
+   Legacy Tailwind colour utilities are mapped to the active DINTEC tokens so
+   operational pages, dialogs and actions stay consistent with the app shell. */
+main button[class*="bg-cyan-"],
+main button[class*="bg-teal-"],
+main button[class*="bg-emerald-"],
+main button[class*="bg-blue-"],
+main label[class*="bg-cyan-"],
+main label[class*="bg-teal-"] {
+  background-color: var(--erp-primary) !important;
+  border-color: var(--erp-primary) !important;
+  color: var(--erp-action-text) !important;
+}
+main button[class*="bg-slate-7"],
+main button[class*="bg-slate-8"],
+main button[class*="bg-slate-9"] {
+  background-color: var(--erp-surface) !important;
+  border: 1px solid var(--erp-border) !important;
+  color: var(--erp-text) !important;
+}
+main [class*="text-cyan-"],
+main [class*="text-teal-"] { color: var(--erp-primary) !important; }
+main [class*="border-cyan-"],
+main [class*="border-teal-"] { border-color: var(--erp-primary) !important; }
+main [class*="ring-cyan-"],
+main [class*="ring-teal-"] { --tw-ring-color: color-mix(in srgb,var(--erp-primary) 24%,transparent) !important; }
+main input:focus, main select:focus, main textarea:focus {
+  border-color: var(--erp-primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb,var(--erp-primary) 14%,transparent) !important;
+}
+main section[role="dialog"], main section[role="alertdialog"] {
+  background: var(--erp-surface) !important;
+  border-color: var(--erp-border) !important;
+  color: var(--erp-text) !important;
+}
+main .ui-action-edit,
+main .ui-action-view,
+main .ui-action-print {
+  background: var(--erp-primary) !important;
+  border-color: var(--erp-primary) !important;
+  color: var(--erp-action-text) !important;
+}
+main .ui-action-secondary,
+main button[class*="bg-slate-2"] {
+  background: var(--erp-surface) !important;
+  border: 1px solid var(--erp-border) !important;
+  color: var(--erp-text) !important;
+}
+main header > p[class*="text-cyan-"],
+main header > p[class*="text-teal-"] {
+  color: var(--erp-primary) !important;
+}
+.auth-card [class*="text-teal-"],
+.auth-card [class*="text-blue-"] { color: var(--erp-primary) !important; }
+.auth-card [class*="bg-teal-"],
+.auth-card [class*="bg-blue-"] {
+  background: var(--erp-primary) !important;
+  color: var(--erp-action-text) !important;
+}
+.portal-topbar [class*="bg-blue-"] { background: var(--erp-active-nav) !important; }
+.portal-topbar [class*="text-blue-"],
+.portal-sidebar [class*="text-blue-"] { color: var(--erp-sidebar-text) !important; }
