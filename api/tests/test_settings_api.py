@@ -129,3 +129,27 @@ def test_invoice_bank_block_uses_stored_values_and_falls_back_to_dash():
     assert _or_dash("  ")=="\u2014"
     assert _or_dash(None)=="\u2014"
     assert _or_dash("A & B Bank")=="A &amp; B Bank"
+
+
+def test_circular_channels_require_the_underlying_delivery_to_be_enabled(master_api):
+    client, headers, factory = master_api
+    admin = headers["talco_admin"]
+    blocked = client.put("/api/settings/channels", headers=admin, json={
+        "circular_email_enabled": True, "circular_whatsapp_enabled": False,
+        "email_to_unverified": True})
+    assert blocked.status_code == 422, "email circulars need SMTP enabled first"
+
+    client.put("/api/settings/smtp", headers=admin, json={
+        "smtp_host": "smtp.example.test", "smtp_port": 587, "smtp_username": "mailer",
+        "smtp_password": "secret-value", "smtp_from_email": "office@example.test",
+        "smtp_from_name": "TALCO", "smtp_security": "starttls", "smtp_enabled": True})
+    saved = client.put("/api/settings/channels", headers=admin, json={
+        "circular_email_enabled": True, "circular_whatsapp_enabled": False,
+        "email_to_unverified": False})
+    assert saved.status_code == 200, saved.text
+    assert saved.json() == {"circular_email_enabled": True, "circular_whatsapp_enabled": False,
+                            "email_to_unverified": False}
+    assert client.get("/api/settings", headers=admin).json()["channels"]["email_to_unverified"] is False
+    assert client.put("/api/settings/channels", headers=headers["talco_staff"], json={
+        "circular_email_enabled": False, "circular_whatsapp_enabled": False,
+        "email_to_unverified": False}).status_code == 403

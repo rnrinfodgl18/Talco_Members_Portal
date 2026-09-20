@@ -220,6 +220,11 @@ class CompanySetting(Base):
     bank_account_number: Mapped[str | None] = mapped_column(String(50))
     bank_branch: Mapped[str | None] = mapped_column(String(255))
     bank_ifsc: Mapped[str | None] = mapped_column(String(20))
+    circular_email_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    circular_whatsapp_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    # Members rarely click a verification link, so circulars would otherwise
+    # reach almost no inbox. The admin enters the address, so it is trusted.
+    email_to_unverified: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     theme_json: Mapped[str | None] = mapped_column(Text)
     whatsapp_base_url: Mapped[str | None] = mapped_column(String(500))
     whatsapp_api_key: Mapped[str | None] = mapped_column(Text)

@@ -39,11 +39,13 @@ Frontend: React, TypeScript, Vite, Tailwind utilities, shared CSS tokens and PWA
 - web/src/PortalPage.tsx — ledger, invoices, receipts and PDF preview.
 - web/src/ImportsPage.tsx — imports, correction review and bill dispatch.
 - web/src/ReportsPage.tsx — admin outstanding summary.
+- web/src/NotificationLogPage.tsx — delivery log, filters and the recipient drill-down.
+- web/src/CircularChannels.tsx — circular delivery switches in Settings.
 - web/src/CircularsPage.tsx — circular and notice board.
 - web/src/SettingsPage.tsx — profile/company/SMTP/WhatsApp settings.
 - web/src/styles.css — DINTEC UI system and legacy-colour normalization.
 - web/src/theme.ts — active theme tokens.
-- web/public/sw.js — PWA cache; current key talco-shell-v9.
+- web/public/sw.js — PWA cache; current key talco-shell-v10.
 
 ## 3. Completed functionality
 
@@ -98,6 +100,8 @@ Circulars/notifications:
 - Read/unread, filters and pagination.
 - Notification bell, notification pagination/read state.
 - SMTP test and delivery logs.
+- Published circulars go out on email and WhatsApp per the Circular delivery switches in Admin Settings. WhatsApp carries text and a portal link only, paced 8-15s apart; attachments stay in the portal.
+- Notification Log is its own admin page with channel, status, type and recipient filters, and a per-item drill-down showing every recipient, each channel's outcome and read/unread.
 - Web push subscriptions.
 - WhatsApp API settings, test and phone verification.
 
@@ -121,11 +125,11 @@ Containers:
 - talco-v1-web — Nginx gateway.
 - Only 127.0.0.1:8002 is published.
 
-Current migration: 0018_optional_user_email (head).
+Current migration: 0019_notification_channels (head).
 
 Latest verification:
 
-- Backend: 101 tests passed.
+- Backend: 110 tests passed.
 - Frontend TypeScript/Vite production build passed.
 - Tally invoice generated and rendered for visual A4 inspection.
 - Production API/web/database containers healthy.
@@ -167,7 +171,7 @@ Backend verification:
     docker compose build api
     docker compose run --rm api pytest -q
 
-Current expected result: 101 passed.
+Current expected result: 110 passed.
 
 Frontend verification:
 
@@ -179,7 +183,7 @@ Migration verification:
 
     docker compose run --rm api alembic upgrade head
 
-The next migration must follow 0018_optional_user_email. Test every migration against PostgreSQL.
+The next migration must follow 0019_notification_channels. Test every migration against PostgreSQL.
 
 ## 7. Git workflow
 
@@ -275,6 +279,9 @@ SMTP and WhatsApp credentials are stored through Admin Settings in PostgreSQL. S
 - /api/notifications — notification state/subscriptions/logs.
 - /api/settings — profile/company/logo/SMTP/WhatsApp.
 - /api/reports — admin outstanding summary (JSON and CSV).
+- /api/notifications/delivery-log — filtered, paginated delivery attempts (admin).
+- /api/notifications/deliveries/{type}/{id} — recipients, per-channel status and read state (admin).
+- /api/settings/channels — circular delivery switches (admin).
 - /health — application/database health.
 
 ## 11. Recommended next work

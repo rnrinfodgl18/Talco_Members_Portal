@@ -107,6 +107,12 @@ class ProfileInput(BaseModel):
     phone: str | None = Field(default=None, max_length=30)
 
 
+class NotificationChannelsInput(BaseModel):
+    circular_email_enabled: bool = True
+    circular_whatsapp_enabled: bool = True
+    email_to_unverified: bool = True
+
+
 class PasswordInput(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=200)
@@ -139,6 +145,11 @@ def _smtp(row: CompanySetting) -> dict:
         "password_configured": bool(row.smtp_password)}
 
 
+def _channels(row: CompanySetting) -> dict:
+    return {key: getattr(row, key) for key in ("circular_email_enabled",
+        "circular_whatsapp_enabled", "email_to_unverified")}
+
+
 def _whatsapp(row: CompanySetting) -> dict:
     return {"whatsapp_base_url": row.whatsapp_base_url,
             "whatsapp_device_id": row.whatsapp_device_id,
@@ -168,6 +179,7 @@ def get_settings(user: User = Depends(current_user), session: Session = Depends(
     if user.role == "talco_admin":
         result["smtp"] = _smtp(row)
         result["whatsapp"] = _whatsapp(row)
+        result["channels"] = _channels(row)
     return result
 
 
@@ -224,6 +236,26 @@ def update_theme(data: ThemeInput, actor: User = Depends(require_roles("talco_ad
         changed_by=actor.email, changes=json.dumps({"from": before, "to": after})))
     session.commit()
     return after
+@router.put("/channels")
+def update_channels(data: NotificationChannelsInput,
+                    actor: User = Depends(require_roles("talco_admin")),
+                    session: Session = Depends(get_db)):
+    """Which channels a published circular goes out on."""
+    row = _settings(session)
+    before = _channels(row)
+    for key, value in data.model_dump().items():
+        setattr(row, key, value)
+    if row.circular_email_enabled and not row.smtp_enabled:
+        raise HTTPException(422, "Enable SMTP delivery before sending circulars by email")
+    if row.circular_whatsapp_enabled and not row.whatsapp_enabled:
+        raise HTTPException(422, "Enable WhatsApp delivery before sending circulars on WhatsApp")
+    after = _channels(row)
+    session.add(AuditLog(entity_type="notification_channels", entity_id=1, action="update",
+        changed_by=actor.email, changes=json.dumps({"from": before, "to": after})))
+    session.commit()
+    return after
+
+
 @router.put("/smtp")
 def update_smtp(data: SmtpInput, actor: User = Depends(require_roles("talco_admin")),
                 session: Session = Depends(get_db)):

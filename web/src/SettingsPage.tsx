@@ -1,5 +1,6 @@
 import {FormEvent,useEffect,useState} from "react";
 import {api,fieldClass,jsonRequest} from "./api";
+import CircularChannels from "./CircularChannels";
 import NotificationSettings from "./NotificationSettings";
 import SmtpTest from "./SmtpTest";
 import WhatsAppSettings from "./WhatsAppSettings";
@@ -25,6 +26,7 @@ export default function SettingsPage({user,onUser,admin}:{user:User;onUser:(x:Us
  <form onSubmit={saveSmtp} className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="text-xl font-bold">Email / SMTP</h3><label className="mt-4 flex gap-2"><input type="checkbox" checked={!!smtp.smtp_enabled} onChange={e=>setSmtp("smtp_enabled",e.target.checked)}/>Enable email delivery</label><div className="mt-5 grid gap-4 md:grid-cols-2">{[["smtp_host","SMTP host"],["smtp_port","Port"],["smtp_username","Username"],["smtp_from_email","From email"],["smtp_from_name","From name"]].map(([k,l])=><label key={k} className="text-sm text-slate-600">{l}<input className={fieldClass} value={smtp[k]||""} onChange={e=>setSmtp(k,k==="smtp_port"?Number(e.target.value):e.target.value)}/></label>)}<label className="text-sm text-slate-600">Password<input type="password" className={fieldClass} placeholder={smtp.password_configured?"Saved — leave blank to keep":""} value={smtp.smtp_password||""} onChange={e=>setSmtp("smtp_password",e.target.value)}/></label><label className="text-sm text-slate-600">Security<select className={fieldClass} value={smtp.smtp_security||"starttls"} onChange={e=>setSmtp("smtp_security",e.target.value)}><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">None</option></select></label></div><button disabled={busy} className="mt-5 rounded-lg bg-cyan-700 px-5 py-2.5 font-semibold text-white">Save email configuration</button></form></>}
  {admin&&<SmtpTest defaultEmail={user.email}/>}
  {admin&&<WhatsAppSettings initial={data.whatsapp} defaultPhone={profile.phone}/>}
+ {admin&&<CircularChannels initial={data.channels}/>}
  <div className="mt-6"><PhoneVerification phone={profile.phone} verified={!!user.phone_verified} onVerified={()=>onUser({...user,phone_verified:true})}/></div>
  <NotificationSettings emailVerified={!!user.email_verified} admin={admin}/>
  </section>

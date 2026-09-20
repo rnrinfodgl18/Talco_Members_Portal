@@ -1,6 +1,8 @@
 import json
+import random
 import smtplib
 import ssl
+import time
 from email.message import EmailMessage
 
 from sqlalchemy import select
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models import CompanySetting, DeliveryLog, Notification, PushSubscription
 from app.models.auth import User
+from app.services.whatsapp import send_whatsapp
 
 
 def send_email(session: Session, user: User, subject: str, body: str,
@@ -101,9 +104,23 @@ def notify_users(session: Session, users: list[User], kind: str, title: str, mes
     return ids
 
 
-def deliver_notifications(notification_ids: list[int], bind) -> None:
+# The WhatsApp gateway is an unofficial self-hosted one. Sending a circular to
+# every member back to back is what gets a number banned, so the fan-out is
+# paced and jittered rather than sent in a burst.
+WHATSAPP_MIN_GAP_SECONDS = 8
+WHATSAPP_MAX_GAP_SECONDS = 15
+
+
+def deliver_notifications(notification_ids: list[int], bind, *, pace: bool = True) -> None:
+    """Deliver queued notifications on whichever channels the admin enabled."""
     from sqlalchemy.orm import Session
     with Session(bind) as session:
+        config = session.get(CompanySetting, 1)
+        portal = get_settings().public_url.rstrip("/")
+        email_enabled = bool(config and config.circular_email_enabled)
+        whatsapp_enabled = bool(config and config.circular_whatsapp_enabled)
+        to_unverified = bool(config and config.email_to_unverified)
+        sent_on_whatsapp = 0
         for notification_id in notification_ids:
             row = session.get(Notification, notification_id)
             if not row:
@@ -112,7 +129,14 @@ def deliver_notifications(notification_ids: list[int], bind) -> None:
             if not user or not user.active:
                 continue
             send_push(session, user, row)
-            if user.email_verified_at:
-                send_email(session, user, row.title, row.message +
-                    (f"\n\nOpen: {get_settings().public_url}" if row.link else ""), row.id)
+            link = f"\n\nOpen: {portal}" if row.link else ""
+            if email_enabled and user.email and (user.email_verified_at or to_unverified):
+                send_email(session, user, row.title, row.message + link, row.id)
+            if whatsapp_enabled and user.phone:
+                if pace and sent_on_whatsapp:
+                    time.sleep(random.uniform(WHATSAPP_MIN_GAP_SECONDS, WHATSAPP_MAX_GAP_SECONDS))
+                # Text and a link only. Attachments stay in the portal.
+                send_whatsapp(session, user, f"{row.title}\n\n{row.message}{link}",
+                              notification_id=row.id)
+                sent_on_whatsapp += 1
             session.commit()
