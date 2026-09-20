@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.importer.parser import TallyParseError
 from app.models import ChargeHead, ImportBatch, StagingRow
+from app.services.bill_dispatch import dispatch_batch
 from app.services.import_pipeline import DuplicateImportError, create_batch, post_batch, resolve_invoice_correction
 
 
@@ -83,6 +84,20 @@ def post(batch_id: int, role: str = Header(default="", alias="X-TALCO-ROLE"),
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
     return _summary(session, batch)
+
+
+@router.post("/{batch_id}/dispatch")
+def dispatch(batch_id: int, role: str = Header(default="", alias="X-TALCO-ROLE"),
+             session: Session = Depends(get_db)) -> dict:
+    """Email and WhatsApp the bills this batch posted. Safe to re-run."""
+    if role not in {"talco_admin", "talco_staff"}:
+        raise HTTPException(403, "Admin or office staff role required")
+    batch = session.get(ImportBatch, batch_id)
+    if batch is None:
+        raise HTTPException(404, "Import batch was not found")
+    if batch.status not in {"posted", "partially_posted"}:
+        raise HTTPException(409, "Post the batch before sending its bills")
+    return dispatch_batch(session, batch)
 
 
 class CorrectionDecision(BaseModel):

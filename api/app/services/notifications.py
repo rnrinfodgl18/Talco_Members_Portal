@@ -13,7 +13,9 @@ from app.models.auth import User
 
 def send_email(session: Session, user: User, subject: str, body: str,
                notification_id: int | None = None, force: bool = False,
-               destination: str | None = None) -> bool:
+               destination: str | None = None,
+               attachments: list[tuple[str, str, bytes]] | None = None) -> bool:
+    """Send one email. attachments are (filename, mime_type, content) triples."""
     config = session.get(CompanySetting, 1)
     recipient = destination or user.email
     if not config or (not config.smtp_enabled and not force):
@@ -29,6 +31,10 @@ def send_email(session: Session, user: User, subject: str, body: str,
     message["From"] = f"{config.smtp_from_name or config.short_name} <{config.smtp_from_email}>"
     message["To"] = recipient
     message.set_content(body)
+    for filename, mime_type, content in attachments or ():
+        main_type, _, sub_type = mime_type.partition("/")
+        message.add_attachment(content, maintype=main_type or "application",
+                               subtype=sub_type or "octet-stream", filename=filename)
     try:
         if config.smtp_security == "ssl":
             server = smtplib.SMTP_SSL(config.smtp_host, config.smtp_port, timeout=15,
