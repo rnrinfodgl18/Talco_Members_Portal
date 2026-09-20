@@ -240,6 +240,9 @@ class Circular(Base):
     category: Mapped[str] = mapped_column(String(40), default="general", server_default="general", nullable=False)
     priority: Mapped[str] = mapped_column(String(20), default="normal", server_default="normal", nullable=False)
     audience: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Comma-separated roles for the "roles" audience; the resolved recipients
+    # are snapshotted into circular_recipient either way.
+    audience_roles: Mapped[str | None] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(20), default="published", server_default="published", nullable=False)
     expires_on: Mapped[date | None] = mapped_column(Date)
     attachment_name: Mapped[str | None] = mapped_column(String(255))

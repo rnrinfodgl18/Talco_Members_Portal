@@ -10,6 +10,7 @@ from app.db import get_db
 from app.models import AuditLog, Circular, CircularRead, CircularRecipient
 from app.models.auth import User
 from app.security import current_user, require_roles
+from app.services.circular_audience import AUDIENCES, PORTAL_ROLES as AUDIENCE_ROLES, resolve
 from app.services.notifications import deliver_notifications, notify_users
 
 router = APIRouter(prefix="/api/circulars", tags=["circulars"])
@@ -35,7 +36,8 @@ def _visible(session: Session, user: User, circular_id: int) -> Circular:
         raise HTTPException(404, "Circular not found")
     if row.expires_on and row.expires_on < date.today():
         raise HTTPException(404, "Circular not found")
-    if row.audience == "selected" and session.get(CircularRecipient, (row.id, user.id)) is None:
+    # Every audience except "all" was snapshotted when the circular published.
+    if row.audience != "all" and session.get(CircularRecipient, (row.id, user.id)) is None:
         raise HTTPException(404, "Circular not found")
     return row
 
@@ -50,6 +52,7 @@ def _summary(session: Session, row: Circular, user_id: int | None = None) -> dic
     return {
         "id": row.id, "title": row.title, "content": row.content, "category": row.category,
         "priority": row.priority, "audience": row.audience, "status": row.status,
+        "audience_roles": row.audience_roles.split(",") if row.audience_roles else [],
         "expires_on": row.expires_on.isoformat() if row.expires_on else None,
         "published_at": row.published_at.isoformat() if row.published_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -66,6 +69,24 @@ def audience_options(_: User = Depends(require_roles("talco_admin", "talco_staff
         User.display_name, User.email)).all()
     return [{"id": user.id, "name": user.display_name or user.email, "email": user.email,
              "role": user.role} for user in users]
+
+
+@router.get("/audience/preview")
+def audience_preview(audience: str = "all", roles: str = "",
+                     _: User = Depends(require_roles("talco_admin", "talco_staff")),
+                     session: Session = Depends(get_db)):
+    """How many members this audience resolves to right now, before sending."""
+    if audience not in AUDIENCES:
+        raise HTTPException(422, "Invalid audience")
+    chosen = [value for value in (x.strip() for x in roles.split(",")) if value]
+    if audience == "roles" and (not chosen or not set(chosen) <= set(AUDIENCE_ROLES)):
+        return {"audience": audience, "count": 0, "names": []}
+    if audience == "selected":
+        return {"audience": audience, "count": 0, "names": []}
+    targets = resolve(session, audience, roles=chosen)
+    return {"audience": audience, "count": len(targets),
+            "names": [user.display_name or user.username or user.email or f"User {user.id}"
+                      for user in targets[:12]]}
 
 
 @router.get("/manage")
@@ -115,6 +136,7 @@ async def create_circular(
     background_tasks: BackgroundTasks, title: str = Form(...), content: str = Form(...), category: str = Form("general"),
     priority: str = Form("normal"), audience: str = Form("all"), status: str = Form("published"),
     expires_on: date | None = Form(None), recipient_ids: str = Form("[]"),
+    audience_roles: str = Form(""),
     attachment: UploadFile | None = File(None),
     actor: User = Depends(require_roles("talco_admin", "talco_staff")),
     session: Session = Depends(get_db),
@@ -122,7 +144,7 @@ async def create_circular(
     title, content = title.strip(), content.strip()
     if not 3 <= len(title) <= 255 or not content:
         raise HTTPException(422, "Title and message are required")
-    if category not in CATEGORIES or priority not in PRIORITIES or audience not in {"all", "selected"} or status not in STATUSES:
+    if category not in CATEGORIES or priority not in PRIORITIES or audience not in AUDIENCES or status not in STATUSES:
         raise HTTPException(422, "Invalid circular option")
     try:
         ids = [int(value) for value in json.loads(recipient_ids)]
@@ -130,6 +152,7 @@ async def create_circular(
         raise HTTPException(422, "Selected recipients are invalid") from exc
     if len(ids) != len(set(ids)):
         raise HTTPException(422, "Select each recipient only once")
+    roles = [value for value in (x.strip() for x in audience_roles.split(",")) if value]
     if audience == "selected":
         if not ids:
             raise HTTPException(422, "Select at least one member")
@@ -139,6 +162,18 @@ async def create_circular(
             raise HTTPException(422, "One or more selected recipients are invalid")
     else:
         ids = []
+    if audience == "roles":
+        if not roles or not set(roles) <= set(AUDIENCE_ROLES):
+            raise HTTPException(422, "Choose at least one valid recipient role")
+    else:
+        roles = []
+    # Resolve now, so the circular records who it was addressed to rather than
+    # a rule that would give a different answer when read later.
+    targets = resolve(session, audience, roles=roles, selected_ids=ids)
+    if audience in {"roles", "outstanding"} and not targets:
+        raise HTTPException(422, "No active member matches this audience right now")
+    if audience != "all":
+        ids = [user.id for user in targets]
     data = mime = name = None
     if attachment and attachment.filename:
         mime = attachment.content_type or "application/octet-stream"
@@ -150,7 +185,8 @@ async def create_circular(
         name = attachment.filename.replace("\\", "/").split("/")[-1][:255]
     now = datetime.now(timezone.utc)
     row = Circular(title=title, content=content, category=category, priority=priority,
-        audience=audience, status=status, expires_on=expires_on, attachment_name=name,
+        audience=audience, audience_roles=",".join(roles) or None,
+        status=status, expires_on=expires_on, attachment_name=name,
         attachment_mime=mime, attachment_data=data, created_by=actor.id,
         published_at=now if status == "published" else None)
     session.add(row)
@@ -158,15 +194,11 @@ async def create_circular(
     session.add_all(CircularRecipient(circular_id=row.id, user_id=user_id) for user_id in ids)
     session.add(AuditLog(entity_type="circular", entity_id=row.id, action=status,
         changed_by=actor.email, changes=json.dumps({"title": title, "audience": audience,
-            "recipients": ids, "priority": priority, "expires_on": str(expires_on) if expires_on else None,
-            "attachment": name})))
+            "audience_roles": roles, "recipients": ids, "priority": priority,
+            "expires_on": str(expires_on) if expires_on else None, "attachment": name})))
     session.commit()
     session.refresh(row)
     if status == "published":
-        target_query = select(User).where(User.active.is_(True), User.role.in_(PORTAL_ROLES))
-        if audience == "selected":
-            target_query = target_query.where(User.id.in_(ids))
-        targets = list(session.scalars(target_query))
         notification_ids = notify_users(session, targets, "circular", title, content[:300], "/?page=circulars", "circular", row.id)
         session.commit()
         background_tasks.add_task(deliver_notifications, notification_ids, session.get_bind())

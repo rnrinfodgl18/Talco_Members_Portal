@@ -28,6 +28,7 @@ Backend: Python 3.12, FastAPI, SQLAlchemy, Alembic, PostgreSQL 16, WeasyPrint an
 - api/app/services/scope.py — shared member/account access scoping, including the lessee lease window.
 - api/app/services/notifications.py — email (with attachments) and push delivery.
 - api/app/services/bill_dispatch.py — sends posted bills by email and WhatsApp.
+- api/app/services/circular_audience.py — resolves a circular's recipients.
 - api/app/services/whatsapp.py — FII Tech WhatsApp API.
 - api/alembic/versions/ — migrations.
 - api/tests/ — regression tests.
@@ -45,7 +46,7 @@ Frontend: React, TypeScript, Vite, Tailwind utilities, shared CSS tokens and PWA
 - web/src/SettingsPage.tsx — profile/company/SMTP/WhatsApp settings.
 - web/src/styles.css — DINTEC UI system and legacy-colour normalization.
 - web/src/theme.ts — active theme tokens.
-- web/public/sw.js — PWA cache; current key talco-shell-v10.
+- web/public/sw.js — PWA cache; current key talco-shell-v11.
 
 ## 3. Completed functionality
 
@@ -95,7 +96,9 @@ Member portal/documents:
 
 Circulars/notifications:
 
-- Draft/publish, all or selected recipients, expiry and deletion.
+- Draft/publish, expiry and deletion.
+- Four audiences: all, hand-picked, role-wise (owners / lessees / member staff), and everyone with outstanding. The last three are resolved when the circular publishes and the resulting users are snapshotted into circular_recipient, so paying up afterwards never hides a notice already addressed. Visibility for every audience except "all" reads that snapshot.
+- Audience preview shows the resolved count and names before publishing.
 - PDF/image/Word/Excel attachments up to 8 MB and secured download.
 - Read/unread, filters and pagination.
 - Notification bell, notification pagination/read state.
@@ -125,11 +128,11 @@ Containers:
 - talco-v1-web — Nginx gateway.
 - Only 127.0.0.1:8002 is published.
 
-Current migration: 0019_notification_channels (head).
+Current migration: 0020_circular_audience_roles (head).
 
 Latest verification:
 
-- Backend: 110 tests passed.
+- Backend: 117 tests passed.
 - Frontend TypeScript/Vite production build passed.
 - Tally invoice generated and rendered for visual A4 inspection.
 - Production API/web/database containers healthy.
@@ -171,7 +174,7 @@ Backend verification:
     docker compose build api
     docker compose run --rm api pytest -q
 
-Current expected result: 110 passed.
+Current expected result: 117 passed.
 
 Frontend verification:
 
@@ -183,7 +186,7 @@ Migration verification:
 
     docker compose run --rm api alembic upgrade head
 
-The next migration must follow 0019_notification_channels. Test every migration against PostgreSQL.
+The next migration must follow 0020_circular_audience_roles. Test every migration against PostgreSQL.
 
 ## 7. Git workflow
 
@@ -294,9 +297,6 @@ Not yet built, in the order they were agreed with the client:
    The outstanding summary is done.
 2. Statement Excel export, member-selectable date range, and the head-wise
    statement variant. Keep the dashboard combined - do not add per-head tiles.
-3. Circular targeting for role-wise and dynamic "everyone with outstanding"
-   audiences. Only "all" and "selected" exist. The dynamic audience is a live
-   query evaluated at send time, snapshotting who it resolved to.
 4. English/Tamil i18n. No scaffolding exists and every screen is hardcoded
    English. UI labels in both; bill and statement content stays English.
 5. Batch versioning keyed on (head, period), and flagging invoices whose
