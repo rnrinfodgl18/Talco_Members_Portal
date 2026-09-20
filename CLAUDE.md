@@ -1,7 +1,7 @@
 # TALCO-DINTEC Member Portal — Development Handoff
 
-Last updated: 20 September 2026
-Stable Git commit: 48fc879
+Last updated: 21 September 2026
+Stable Git commit: f512fbf
 Branch: codex/dintec-demo-ui
 Repository: https://github.com/rnrinfodgl18/Talco_Members_Portal
 Production: https://talco.smartiva.tech
