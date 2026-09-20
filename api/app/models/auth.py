@@ -12,7 +12,8 @@ ROLES = {"talco_admin", "talco_staff", "member", "member_staff", "lessee"}
 class User(Base):
     __tablename__ = "app_user"
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # Optional: the admin issues a username, and many owners have no email.
+    email: Mapped[str | None] = mapped_column(String(255), unique=True)
     username: Mapped[str | None] = mapped_column(String(80), unique=True)
     display_name: Mapped[str | None] = mapped_column(String(120))
     phone: Mapped[str | None] = mapped_column(String(30))

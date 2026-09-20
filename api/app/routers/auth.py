@@ -26,8 +26,19 @@ class Credentials(BaseModel):
 
 
 class InviteRequest(BaseModel):
-    email: str
+    """Create one portal account.
+
+    Email is optional by design: the admin issues a username, and many tannery
+    owners have no reliable email address. Supply a password to create the
+    account ready to use and hand the credentials over in person; omit it and
+    an email invitation link is sent instead, which needs an email address.
+    """
     role: str
+    email: str | None = Field(default=None, max_length=255)
+    username: str | None = Field(default=None, max_length=80)
+    display_name: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=30)
+    password: str | None = Field(default=None, min_length=8, max_length=200)
     tannery_id: int | None = None
     party_id: int | None = None
     accounts: list[LedgerGrant] | None = Field(default=None, max_length=500)
@@ -121,16 +132,33 @@ def invite(request: InviteRequest, actor: User = Depends(require_roles("talco_ad
         raise HTTPException(422, "Member accounts require a tannery")
     if request.role == "lessee" and request.accounts is None and not request.party_id:
         raise HTTPException(422, "Lessee accounts require a party")
-    if session.scalar(select(User).where(User.email == request.email.lower())):
+    email = (request.email or "").strip().lower() or None
+    username = (request.username or "").strip() or None
+    if not email and not username:
+        raise HTTPException(422, "A username or an email address is required")
+    if not email and not request.password:
+        raise HTTPException(422, "Set a password for an account with no email address")
+    if email and session.scalar(select(User).where(func.lower(User.email) == email)):
         raise HTTPException(409, "Email already invited")
+    if username and session.scalar(select(User).where(func.lower(User.username) == username.lower())):
+        raise HTTPException(409, "Username is already taken")
     if request.accounts is not None:
         validate_grants(session, request.accounts)
-    user = User(email=request.email.strip().lower(), role=request.role, tannery_id=request.tannery_id,
-                party_id=request.party_id, must_set_password=True)
+    user = User(email=email, username=username, role=request.role,
+                display_name=(request.display_name or "").strip() or None,
+                phone=normalize_phone(request.phone) if request.phone else None,
+                tannery_id=request.tannery_id, party_id=request.party_id,
+                must_set_password=request.password is None)
+    if request.password:
+        user.password_hash = hash_password(request.password)
     session.add(user); session.flush()
     if request.accounts is not None:
         set_grants(session, user, request.accounts, actor)
     session.commit(); session.refresh(user)
+    if request.password:
+        # Credentials are handed over in person; show them once, never store them.
+        return {"user": serialize_user(user), "email_delivery": "not_required",
+                "credentials": {"identifier": username or email, "password": request.password}}
     delivered = send_invitation(session, user)
     return {"user": serialize_user(user), "email_delivery": "sent" if delivered else "failed"}
 

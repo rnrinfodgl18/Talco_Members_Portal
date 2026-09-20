@@ -54,7 +54,7 @@ async def protect_administration(request, call_next):
             return JSONResponse({"detail": "Administration access required"}, status_code=403)
         headers = [(key, value) for key, value in request.scope["headers"]
                    if key not in {b"x-talco-role", b"x-talco-actor"}]
-        headers.extend([(b"x-talco-role", user.role.encode()), (b"x-talco-actor", user.email.encode())])
+        headers.extend([(b"x-talco-role", user.role.encode()), (b"x-talco-actor", (user.email or user.username or str(user.id)).encode())])
         request.scope["headers"] = headers
     return await call_next(request)
 

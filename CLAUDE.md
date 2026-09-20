@@ -43,13 +43,14 @@ Frontend: React, TypeScript, Vite, Tailwind utilities, shared CSS tokens and PWA
 - web/src/SettingsPage.tsx — profile/company/SMTP/WhatsApp settings.
 - web/src/styles.css — DINTEC UI system and legacy-colour normalization.
 - web/src/theme.ts — active theme tokens.
-- web/public/sw.js — PWA cache; current key talco-shell-v8.
+- web/public/sw.js — PWA cache; current key talco-shell-v9.
 
 ## 3. Completed functionality
 
 Authentication and users:
 
 - Admin bootstrap, invitations and email-delivered setup links.
+- Admin-issued accounts: username plus a password handed over in person, no email required. app_user.email is nullable.
 - Forgot/reset password.
 - Username, email or phone login.
 - Username, display name, email and phone profile update.
@@ -120,11 +121,11 @@ Containers:
 - talco-v1-web — Nginx gateway.
 - Only 127.0.0.1:8002 is published.
 
-Current migration: 0017_company_bank_details (head).
+Current migration: 0018_optional_user_email (head).
 
 Latest verification:
 
-- Backend: 95 tests passed.
+- Backend: 101 tests passed.
 - Frontend TypeScript/Vite production build passed.
 - Tally invoice generated and rendered for visual A4 inspection.
 - Production API/web/database containers healthy.
@@ -166,7 +167,7 @@ Backend verification:
     docker compose build api
     docker compose run --rm api pytest -q
 
-Current expected result: 95 passed.
+Current expected result: 101 passed.
 
 Frontend verification:
 
@@ -178,7 +179,7 @@ Migration verification:
 
     docker compose run --rm api alembic upgrade head
 
-The next migration must follow 0017_company_bank_details. Test every migration against PostgreSQL.
+The next migration must follow 0018_optional_user_email. Test every migration against PostgreSQL.
 
 ## 7. Git workflow
 
@@ -295,7 +296,7 @@ Not yet built, in the order they were agreed with the client:
    values changed after dispatch with a "changed since sent - resend?" action.
    Bill dispatch now records a notification per invoice, so that flag has
    something to compare against.
-6. Admin "print credentials" action. The office will hand over 60+ logins.
+6. A printable credential sheet. Creating an account shows the login and password once; there is no print or batch export yet.
 
 Hosting is still talco.smartiva.tech. The client asked for
 portal.talcodintec.com, which needs a CNAME from whoever runs that domain
