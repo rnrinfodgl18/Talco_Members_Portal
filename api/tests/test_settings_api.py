@@ -76,3 +76,28 @@ def test_admin_can_publish_theme_for_all_users(master_api):
     assert client.get("/api/settings/public").json()["theme"] == theme
     with session_factory() as session:
         assert session.query(AuditLog).filter_by(entity_type="theme_setting", action="update").count() == 1
+
+
+def test_admin_whatsapp_settings_and_member_phone_verification(master_api, monkeypatch):
+    client, headers, factory = master_api
+    payload = {"whatsapp_base_url":"https://wapi.example.test", "whatsapp_api_key":"secret-api-key",
+               "whatsapp_device_id":31, "whatsapp_enabled":True}
+    assert client.put("/api/settings/whatsapp", headers=headers["talco_staff"], json=payload).status_code == 403
+    saved = client.put("/api/settings/whatsapp", headers=headers["talco_admin"], json=payload)
+    assert saved.status_code == 200, saved.text
+    settings = client.get("/api/settings", headers=headers["talco_admin"]).json()["whatsapp"]
+    assert settings["api_key_configured"] is True
+    assert "whatsapp_api_key" not in settings
+    with factory() as session:
+        row = session.get(CompanySetting, 1)
+        assert row.whatsapp_api_key == "secret-api-key"
+        member = session.scalar(select(User).where(User.email == "member@test.local"))
+        member.phone = "9876543210"
+        session.commit()
+    monkeypatch.setattr("app.routers.auth.secrets.randbelow", lambda _: 123456)
+    monkeypatch.setattr("app.routers.auth.send_whatsapp", lambda *args, **kwargs: True)
+    sent = client.post("/api/auth/phone-verification/request", headers=headers["member"])
+    assert sent.status_code == 200, sent.text
+    confirmed = client.post("/api/auth/phone-verification/confirm", headers=headers["member"], json={"code":"123456"})
+    assert confirmed.status_code == 200, confirmed.text
+    assert client.get("/api/auth/me", headers=headers["member"]).json()["phone_verified"] is True

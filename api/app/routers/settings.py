@@ -11,6 +11,7 @@ from app.models import AuditLog, CompanySetting
 from app.models.auth import User
 from app.security import current_user, hash_password, require_roles, verify_password
 from app.services.notifications import send_email
+from app.services.whatsapp import normalize_phone, send_whatsapp
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -38,6 +39,18 @@ class SmtpInput(BaseModel):
     smtp_security: str = Field(default="starttls", pattern="^(starttls|ssl|none)$")
     smtp_enabled: bool = False
     clear_password: bool = False
+
+
+class WhatsAppInput(BaseModel):
+    whatsapp_base_url: str | None = Field(default=None, max_length=500, pattern=r"^https?://.+")
+    whatsapp_api_key: str | None = Field(default=None, max_length=1000)
+    whatsapp_device_id: int | None = Field(default=None, ge=1)
+    whatsapp_enabled: bool = False
+    clear_api_key: bool = False
+
+
+class WhatsAppTestInput(BaseModel):
+    phone: str = Field(min_length=10, max_length=30)
 
 
 _THEME_DEFAULTS = {
@@ -114,6 +127,13 @@ def _smtp(row: CompanySetting) -> dict:
         "password_configured": bool(row.smtp_password)}
 
 
+def _whatsapp(row: CompanySetting) -> dict:
+    return {"whatsapp_base_url": row.whatsapp_base_url,
+            "whatsapp_device_id": row.whatsapp_device_id,
+            "whatsapp_enabled": row.whatsapp_enabled,
+            "api_key_configured": bool(row.whatsapp_api_key)}
+
+
 @router.get("/public")
 def public_settings(session: Session = Depends(get_db)):
     row = _settings(session)
@@ -135,6 +155,7 @@ def get_settings(user: User = Depends(current_user), session: Session = Depends(
     result = {"company": _company(row), "theme": _theme(row)}
     if user.role == "talco_admin":
         result["smtp"] = _smtp(row)
+        result["whatsapp"] = _whatsapp(row)
     return result
 
 
@@ -228,6 +249,43 @@ def test_smtp(data: SmtpTestInput, actor: User = Depends(require_roles("talco_ad
     if not delivered:
         raise HTTPException(502, "SMTP test failed. Check the Notification delivery log for the exact reason.")
     return {"status": "sent", "recipient": recipient}
+@router.put("/whatsapp")
+def update_whatsapp(data: WhatsAppInput, actor: User = Depends(require_roles("talco_admin")),
+                    session: Session = Depends(get_db)):
+    row = _settings(session)
+    before = _whatsapp(row)
+    values = data.model_dump(exclude={"clear_api_key"})
+    api_key = values.pop("whatsapp_api_key")
+    for key, value in values.items():
+        setattr(row, key, value.strip() if isinstance(value, str) else value)
+    if data.clear_api_key:
+        row.whatsapp_api_key = None
+    elif api_key:
+        row.whatsapp_api_key = api_key.strip()
+    if row.whatsapp_enabled and (not row.whatsapp_base_url or not row.whatsapp_api_key):
+        raise HTTPException(422, "Base URL and API key are required before enabling WhatsApp")
+    after = _whatsapp(row)
+    session.add(AuditLog(entity_type="whatsapp_setting", entity_id=1, action="update",
+        changed_by=actor.email, changes=json.dumps({"from": before, "to": after})))
+    session.commit()
+    return after
+
+
+@router.post("/whatsapp/test")
+def test_whatsapp(data: WhatsAppTestInput, actor: User = Depends(require_roles("talco_admin")),
+                  session: Session = Depends(get_db)):
+    try:
+        phone = normalize_phone(data.phone)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    delivered = send_whatsapp(session, actor,
+        "TALCO WhatsApp test successful. Portal notifications are connected.",
+        destination=phone, force=True)
+    session.commit()
+    if not delivered:
+        raise HTTPException(502, "WhatsApp test failed. Check the configuration and delivery log.")
+    return {"status": "sent", "phone": phone}
+
 @router.put("/profile")
 def update_profile(data: ProfileInput, user: User = Depends(current_user), session: Session = Depends(get_db)):
     before = {"display_name": user.display_name, "email": user.email, "phone": user.phone}
@@ -235,7 +293,10 @@ def update_profile(data: ProfileInput, user: User = Depends(current_user), sessi
     if user.email != data.email.strip().lower():
         user.email_verified_at = None
     user.email = data.email.strip().lower()
-    user.phone = data.phone.strip() if data.phone else None
+    next_phone = data.phone.strip() if data.phone else None
+    if user.phone != next_phone:
+        user.phone_verified_at = None
+    user.phone = next_phone
     try:
         session.add(AuditLog(entity_type="user_profile", entity_id=user.id, action="update",
             changed_by=before["email"], changes=json.dumps({"from": before,
@@ -245,7 +306,8 @@ def update_profile(data: ProfileInput, user: User = Depends(current_user), sessi
         session.rollback()
         raise HTTPException(409, "This email is already used by another login") from exc
     return {"id": user.id, "display_name": user.display_name, "email": user.email,
-            "phone": user.phone, "role": user.role, "email_verified": bool(user.email_verified_at)}
+            "phone": user.phone, "role": user.role, "email_verified": bool(user.email_verified_at),
+            "phone_verified": bool(user.phone_verified_at)}
 
 
 @router.put("/password")

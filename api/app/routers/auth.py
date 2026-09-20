@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -12,6 +14,7 @@ from app.routers.user_access import LedgerGrant, set_grants, validate_grants
 from app.security import (SESSION_HOURS, consume_token, current_user, hash_password, issue_token,
                           require_roles, token_user, verify_password)
 from app.services.notifications import send_email
+from app.services.whatsapp import normalize_phone, send_whatsapp
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -36,6 +39,10 @@ class TokenPassword(BaseModel):
 
 class VerifyToken(BaseModel):
     token: str
+
+
+class PhoneCode(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 class ResetRequest(BaseModel):
@@ -168,6 +175,51 @@ def verify_email(request: VerifyToken, session: Session = Depends(get_db)):
     return {"status": "verified"}
 
 
+@router.post("/phone-verification/request")
+def request_phone_verification(user: User = Depends(current_user), session: Session = Depends(get_db)):
+    if not user.phone:
+        raise HTTPException(422, "Add your WhatsApp phone number in My profile first")
+    try:
+        phone = normalize_phone(user.phone)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if user.phone_verified_at:
+        return {"status": "already_verified", "phone": phone}
+    now = datetime.now(timezone.utc)
+    latest = session.scalar(select(AuthToken).where(AuthToken.user_id == user.id,
+        AuthToken.purpose == "verify_phone").order_by(AuthToken.created_at.desc()))
+    if latest and latest.created_at and (now - latest.created_at.replace(tzinfo=timezone.utc)).total_seconds() < 60:
+        raise HTTPException(429, "Wait one minute before requesting another code")
+    session.query(AuthToken).filter(AuthToken.user_id == user.id, AuthToken.purpose == "verify_phone",
+                                    AuthToken.used_at.is_(None)).update({"used_at": now})
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    raw = f"{user.id}:{code}"
+    session.add(AuthToken(user_id=user.id, token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+                          purpose="verify_phone", expires_at=now + timedelta(minutes=10)))
+    delivered = send_whatsapp(session, user,
+        f"Your TALCO portal verification code is {code}. It expires in 10 minutes.",
+        destination=phone)
+    session.commit()
+    if not delivered:
+        raise HTTPException(502, "WhatsApp code could not be sent. Ask the administrator to check WhatsApp settings.")
+    return {"status": "sent", "phone": phone}
+
+
+@router.post("/phone-verification/confirm")
+def confirm_phone_verification(request: PhoneCode, user: User = Depends(current_user),
+                               session: Session = Depends(get_db)):
+    raw = f"{user.id}:{request.code}"
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    token = session.scalar(select(AuthToken).where(AuthToken.user_id == user.id,
+        AuthToken.token_hash == digest, AuthToken.purpose == "verify_phone"))
+    now = datetime.now(timezone.utc)
+    if not token or token.used_at or token.expires_at.replace(tzinfo=timezone.utc) <= now:
+        raise HTTPException(400, "The verification code is invalid or has expired")
+    token.used_at = now
+    user.phone_verified_at = now
+    session.commit()
+    return {"status": "verified", "phone_verified": True}
+
 @router.post("/reset-request")
 def reset_request(request: ResetRequest, session: Session = Depends(get_db)):
     user = session.scalar(select(User).where(User.email == request.email.strip().lower(), User.active.is_(True)))
@@ -202,4 +254,5 @@ def reset_password(request: TokenPassword, session: Session = Depends(get_db)):
 def serialize_user(user: User) -> dict:
     return {"id": user.id, "email": user.email, "display_name": user.display_name, "phone": user.phone,
             "role": user.role, "tannery_id": user.tannery_id, "party_id": user.party_id,
-            "must_set_password": user.must_set_password, "email_verified": bool(user.email_verified_at)}
+            "must_set_password": user.must_set_password, "email_verified": bool(user.email_verified_at),
+            "phone_verified": bool(user.phone_verified_at)}

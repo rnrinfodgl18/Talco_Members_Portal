@@ -16,6 +16,7 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(120))
     phone: Mapped[str | None] = mapped_column(String(30))
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     password_hash: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(30), nullable=False)
     tannery_id: Mapped[int | None] = mapped_column(ForeignKey("tannery.id"))
