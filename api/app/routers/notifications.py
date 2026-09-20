@@ -76,9 +76,15 @@ def read_all(user: User = Depends(current_user), session: Session = Depends(get_
 
 
 @router.get("/push-key")
-def push_key(_: User = Depends(current_user)):
-    key = get_settings().vapid_public_key
-    return {"public_key": key, "configured": bool(key and get_settings().vapid_private_key)}
+def push_key(user: User = Depends(current_user), session: Session = Depends(get_db)):
+    settings = get_settings()
+    configured = bool(settings.vapid_public_key and settings.vapid_private_key)
+    devices = session.scalar(select(func.count()).select_from(PushSubscription).where(
+        PushSubscription.user_id == user.id)) or 0
+    return {"public_key": settings.vapid_public_key, "configured": configured,
+            "devices": devices,
+            "reason": None if configured else
+                      "The server has no VAPID keys, so push cannot be delivered to any device."}
 
 
 @router.post("/subscriptions")

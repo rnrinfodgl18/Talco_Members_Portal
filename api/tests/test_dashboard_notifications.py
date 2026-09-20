@@ -56,3 +56,36 @@ def test_admin_and_member_dashboards_are_role_scoped(master_api):
     assert {"accounts","total_outstanding","unread_notifications","email_verified","latest_invoice","latest_receipt","recent_invoices","notice_summary"} <= member.json().keys()
     assert client.get("/api/notifications/delivery-log", headers=headers["talco_staff"]).status_code == 403
     assert client.get("/api/notifications/delivery-log", headers=headers["talco_admin"]).status_code == 200
+
+
+def test_push_records_why_it_did_not_deliver(master_api, monkeypatch):
+    """A silent nothing is why 'push does not work' is hard to diagnose."""
+    from sqlalchemy import select
+
+    from app.config import get_settings
+    from app.models import DeliveryLog, Notification
+    from app.models.auth import User
+    from app.services.notifications import send_push
+
+    client, headers, factory = master_api
+    get_settings.cache_clear()
+    with factory() as session:
+        member = session.scalar(select(User).where(User.email == "member@test.local"))
+        row = Notification(user_id=member.id, kind="circular", title="Notice", message="Body")
+        session.add(row); session.commit()
+
+        monkeypatch.setattr("app.services.notifications.get_settings",
+            lambda: type("S", (), {"vapid_private_key": None, "vapid_public_key": None})())
+        assert send_push(session, member, row) == 0
+        session.commit()
+        logged = session.scalar(select(DeliveryLog).where(DeliveryLog.channel == "push"))
+        assert "VAPID" in logged.detail
+
+        session.delete(logged); session.commit()
+        monkeypatch.setattr("app.services.notifications.get_settings",
+            lambda: type("S", (), {"vapid_private_key": "x", "vapid_public_key": "y",
+                                   "vapid_subject": "mailto:a@b.test"})())
+        assert send_push(session, member, row) == 0
+        session.commit()
+        logged = session.scalar(select(DeliveryLog).where(DeliveryLog.channel == "push"))
+        assert "No device has push enabled" in logged.detail

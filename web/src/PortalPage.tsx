@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, fieldClass } from "./api";
+import { api, apiBlob, canPreviewPdfInline, fieldClass, saveBlob } from "./api";
 import { StatementTable, HistoryTable } from "./LedgerTable";
 import LedgerPrint from "./LedgerPrint";
 import { StatementEntry, HistoryEntry, balanceLabel, formatDate, formatMoney } from "./ledgerPresentation";
@@ -16,7 +16,7 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
  const [company,setCompany]=useState<any>({});
  const [dashboard,setDashboard]=useState<Dashboard|null>(null),[ledger,setLedger]=useState<StatementEntry[]>([]),[history,setHistory]=useState<HistoryEntry[]>([]);
  const [error,setError]=useState(""),[loading,setLoading]=useState(true),[accountsLoading,setAccountsLoading]=useState(true);
- const [version,setVersion]=useState(0),[tab,setTab]=useState<Tab>(initialTab),[invoice,setInvoice]=useState<InvoiceDetail|null>(null),[invoicePdfUrl,setInvoicePdfUrl]=useState("");
+ const [version,setVersion]=useState(0),[tab,setTab]=useState<Tab>(initialTab),[invoice,setInvoice]=useState<InvoiceDetail|null>(null),[invoicePdfUrl,setInvoicePdfUrl]=useState(""),[invoiceBlob,setInvoiceBlob]=useState<Blob|null>(null);
  useEffect(()=>{api("/api/settings/public").then(setCompany).catch(()=>{})},[]);
  useEffect(()=>setTab(initialTab),[initialTab]);
  useEffect(()=>{let active=true;setAccountsLoading(true);setError("");api("/api/portal/accounts").then((items:Account[])=>{if(!active)return;setAccounts(items);setSelected(current=>items.some(item=>String(item.id)===current)?current:String(items.find(item=>item.id===initialAccountId)?.id??items[0]?.id??""))}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setAccountsLoading(false)});return()=>{active=false}},[initialAccountId,version]);
@@ -24,11 +24,30 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
  const account=accounts.find(item=>String(item.id)===selected);
  const premises=account?[...new Set(account.tanneries.map(item=>item.name+" ("+relationship(item.role)+")"))].join(" / "):"";
  const printView=(kind:"ledger"|"invoice")=>{document.body.dataset.print=kind;const cleanup=()=>{delete document.body.dataset.print};window.addEventListener("afterprint",cleanup,{once:true});window.print();setTimeout(cleanup,1000)};
- const showInvoice=async(id:number)=>{try{setError("");const [detail,response]=await Promise.all([api("/api/portal/invoices/"+id),fetch("/api/portal/invoices/"+id+"/pdf")]);if(!response.ok)throw new Error("Invoice PDF preview failed");if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoice(detail);setInvoicePdfUrl(URL.createObjectURL(await response.blob()))}catch(e){setError((e as Error).message)}};
- const closeInvoice=()=>{if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoicePdfUrl("");setInvoice(null)};
+ const showInvoice=async(id:number)=>{try{setError("");
+   const [detail,blob]=await Promise.all([api("/api/portal/invoices/"+id),apiBlob(`/api/portal/invoices/${id}/pdf`)]);
+   setInvoice(detail);setInvoiceBlob(blob);
+   // Android has no iframe PDF viewer, so on a phone the file is handed to
+   // the system viewer instead of being framed in a panel that stays blank.
+   if(canPreviewPdfInline()){if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoicePdfUrl(URL.createObjectURL(blob))}
+   else saveBlob(blob,`TALCO-Invoice-${sourceDisplay(detail.voucher_no)}.pdf`);
+ }catch(e){setError(`Invoice PDF preview failed: ${(e as Error).message}`)}};
+ const closeInvoice=()=>{if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoicePdfUrl("");setInvoiceBlob(null);setInvoice(null)};
  const printInvoice=()=>{const frame=document.getElementById("official-invoice-preview") as HTMLIFrameElement|null;frame?.contentWindow?.focus();frame?.contentWindow?.print()};
- const showReceipt=async(id:number)=>{try{const response=await fetch("/api/portal/receipts/"+id+"/pdf");if(!response.ok)throw new Error("Receipt PDF download failed");const blob=await response.blob(),url=URL.createObjectURL(blob);window.open(url,"_blank");setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(e){setError((e as Error).message)}};
- const downloadInvoice=async()=>{if(!invoice)return;try{const response=await fetch(`/api/portal/invoices/${invoice.id}/pdf`);if(!response.ok)throw new Error("PDF download failed");const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download=`TALCO-Invoice-${sourceDisplay(invoice.voucher_no)}.pdf`;link.click();URL.revokeObjectURL(url)}catch(e){setError((e as Error).message)}};
+ const showReceipt=async(id:number)=>{try{setError("");
+   const blob=await apiBlob(`/api/portal/receipts/${id}/pdf`);
+   // window.open after an await is treated as an unrequested popup on mobile
+   // and silently blocked, so the file is saved instead.
+   if(canPreviewPdfInline()){const url=URL.createObjectURL(blob);
+     const opened=window.open(url,"_blank");
+     if(!opened)saveBlob(blob,`TALCO-Receipt-${id}.pdf`);
+     setTimeout(()=>URL.revokeObjectURL(url),60000);
+   } else saveBlob(blob,`TALCO-Receipt-${id}.pdf`);
+ }catch(e){setError(`Receipt PDF failed: ${(e as Error).message}`)}};
+ const downloadInvoice=async()=>{if(!invoice)return;try{setError("");
+   const blob=invoiceBlob??await apiBlob(`/api/portal/invoices/${invoice.id}/pdf`);
+   saveBlob(blob,`TALCO-Invoice-${sourceDisplay(invoice.voucher_no)}.pdf`);
+ }catch(e){setError(`PDF download failed: ${(e as Error).message}`)}};
  return <section className="ledger-print mx-auto max-w-7xl p-5 lg:p-8">
   <LedgerPrint company={company} accountCode={dashboard?.party.code} accountName={account?.name} premises={premises} rows={ledger} closing={dashboard?.outstanding}/>
   <header><p className="text-xs uppercase tracking-widest text-cyan-400">Bills & payments</p><h2 className="mt-2 text-3xl font-bold">Account Statement</h2><p className="mt-2 text-slate-400">See your bills, payments and the balance after each entry.</p></header>
@@ -46,11 +65,19 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
    <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 rounded-t-xl bg-white p-3 shadow-xl">
     <div className="mr-auto min-w-0"><b className="block truncate text-slate-900">Tax Invoice · {sourceDisplay(invoice.voucher_no)}</b><span className="text-xs text-slate-500">{invoice.account} · {formatDate(invoice.date)}</span></div>
     <button onClick={downloadInvoice} className="ui-action ui-action-print">Download PDF</button>
-    <button onClick={printInvoice} className="ui-action ui-action-print">Print Invoice</button>
+    {invoicePdfUrl&&<button onClick={printInvoice} className="ui-action ui-action-print">Print Invoice</button>}
     <button onClick={closeInvoice} className="rounded-lg bg-slate-200 px-4 py-2 font-semibold text-slate-800">Close</button>
    </div>
    <div className="mx-auto min-h-0 w-full max-w-5xl flex-1 overflow-hidden rounded-b-xl bg-slate-200 shadow-xl">
-    {invoicePdfUrl?<iframe id="official-invoice-preview" title="Official tax invoice preview" src={invoicePdfUrl} className="h-full min-h-[70vh] w-full border-0 bg-white"/>:<div className="grid h-full place-items-center text-slate-600">Preparing official invoice…</div>}
+    {invoicePdfUrl
+     ?<iframe id="official-invoice-preview" title="Official tax invoice preview" src={invoicePdfUrl} className="h-full min-h-[70vh] w-full border-0 bg-white"/>
+     :invoiceBlob
+      ?<div className="grid h-full min-h-[40vh] place-items-center p-6 text-center"><div>
+        <p className="font-semibold text-slate-800">The invoice has been saved to this device.</p>
+        <p className="mt-2 text-sm text-slate-600">Phones cannot show a PDF inside the app, so open it from your Downloads or notification tray.</p>
+        <button onClick={downloadInvoice} className="ui-action ui-action-print mt-4">Save it again</button>
+       </div></div>
+      :<div className="grid h-full place-items-center text-slate-600">Preparing official invoice…</div>}
    </div>
   </div>}
  </section>;

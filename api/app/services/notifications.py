@@ -63,10 +63,15 @@ def send_push(session: Session, user: User, notification: Notification) -> int:
     settings = get_settings()
     subscriptions = session.scalars(select(PushSubscription).where(
         PushSubscription.user_id == user.id)).all()
-    if not subscriptions or not settings.vapid_private_key or not settings.vapid_public_key:
-        if subscriptions:
-            session.add(DeliveryLog(user_id=user.id, notification_id=notification.id, channel="push",
-                status="skipped", detail="VAPID keys are not configured"))
+    if not settings.vapid_private_key or not settings.vapid_public_key:
+        session.add(DeliveryLog(user_id=user.id, notification_id=notification.id, channel="push",
+            status="skipped", detail="VAPID keys are not configured on the server"))
+        return 0
+    if not subscriptions:
+        # Record it: a silent nothing is why "push does not work" is so hard to
+        # diagnose. The member has not enabled push on any device yet.
+        session.add(DeliveryLog(user_id=user.id, notification_id=notification.id, channel="push",
+            status="skipped", detail="No device has push enabled for this account"))
         return 0
     from pywebpush import WebPushException, webpush
     sent = 0

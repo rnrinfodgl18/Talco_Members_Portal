@@ -46,7 +46,7 @@ Frontend: React, TypeScript, Vite, Tailwind utilities, shared CSS tokens and PWA
 - web/src/SettingsPage.tsx — profile/company/SMTP/WhatsApp settings.
 - web/src/styles.css — DINTEC UI system and legacy-colour normalization.
 - web/src/theme.ts — active theme tokens.
-- web/public/sw.js — PWA cache; current key talco-shell-v11.
+- web/public/sw.js — PWA cache; current key talco-shell-v12.
 
 ## 3. Completed functionality
 
@@ -116,6 +116,9 @@ UI/PWA:
 - Old hardcoded teal/cyan/blue actions mapped to active theme tokens.
 - Mobile drawer, bottom navigation and card-style tables.
 - Installable PWA and persistent session.
+- Binary endpoints go through apiBlob/saveBlob in web/src/api.ts. Never fetch an /api path without the apiUrl prefix, never click a detached anchor, and never revoke an object URL straight after the click: Android drops all three.
+- A phone cannot render a PDF in an iframe, so invoices and receipts are saved to the device there and framed only on a wide screen.
+- Push records why it did not deliver (no VAPID keys, or no device enabled), instead of failing silently.
 - Theme Designer hidden; Help page removed.
 - Smartiva.in/FII Tech.in footer remains.
 
@@ -132,7 +135,7 @@ Current migration: 0020_circular_audience_roles (head).
 
 Latest verification:
 
-- Backend: 117 tests passed.
+- Backend: 118 tests passed.
 - Frontend TypeScript/Vite production build passed.
 - Tally invoice generated and rendered for visual A4 inspection.
 - Production API/web/database containers healthy.
@@ -174,7 +177,7 @@ Backend verification:
     docker compose build api
     docker compose run --rm api pytest -q
 
-Current expected result: 117 passed.
+Current expected result: 118 passed.
 
 Frontend verification:
 
