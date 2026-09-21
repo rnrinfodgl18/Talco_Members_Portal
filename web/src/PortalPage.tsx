@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, apiBlob, canPreviewPdfInline, fieldClass, saveBlob } from "./api";
+import { api, apiBlob, apiText, canPreviewPdfInline, fieldClass, saveBlob } from "./api";
 import { StatementTable, HistoryTable } from "./LedgerTable";
 import LedgerPrint from "./LedgerPrint";
 import { StatementEntry, HistoryEntry, balanceLabel, formatDate, formatMoney } from "./ledgerPresentation";
@@ -16,7 +16,7 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
  const [company,setCompany]=useState<any>({});
  const [dashboard,setDashboard]=useState<Dashboard|null>(null),[ledger,setLedger]=useState<StatementEntry[]>([]),[history,setHistory]=useState<HistoryEntry[]>([]);
  const [error,setError]=useState(""),[loading,setLoading]=useState(true),[accountsLoading,setAccountsLoading]=useState(true);
- const [version,setVersion]=useState(0),[tab,setTab]=useState<Tab>(initialTab),[invoice,setInvoice]=useState<InvoiceDetail|null>(null),[invoicePdfUrl,setInvoicePdfUrl]=useState(""),[invoiceBlob,setInvoiceBlob]=useState<Blob|null>(null);
+ const [version,setVersion]=useState(0),[tab,setTab]=useState<Tab>(initialTab),[invoice,setInvoice]=useState<InvoiceDetail|null>(null),[invoicePdfUrl,setInvoicePdfUrl]=useState(""),[invoiceBlob,setInvoiceBlob]=useState<Blob|null>(null),[invoiceHtml,setInvoiceHtml]=useState("");
  useEffect(()=>{api("/api/settings/public").then(setCompany).catch(()=>{})},[]);
  useEffect(()=>setTab(initialTab),[initialTab]);
  useEffect(()=>{let active=true;setAccountsLoading(true);setError("");api("/api/portal/accounts").then((items:Account[])=>{if(!active)return;setAccounts(items);setSelected(current=>items.some(item=>String(item.id)===current)?current:String(items.find(item=>item.id===initialAccountId)?.id??items[0]?.id??""))}).catch(e=>{if(active)setError(e.message)}).finally(()=>{if(active)setAccountsLoading(false)});return()=>{active=false}},[initialAccountId,version]);
@@ -25,14 +25,20 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
  const premises=account?[...new Set(account.tanneries.map(item=>item.name+" ("+relationship(item.role)+")"))].join(" / "):"";
  const printView=(kind:"ledger"|"invoice")=>{document.body.dataset.print=kind;const cleanup=()=>{delete document.body.dataset.print};window.addEventListener("afterprint",cleanup,{once:true});window.print();setTimeout(cleanup,1000)};
  const showInvoice=async(id:number)=>{try{setError("");
-   const [detail,blob]=await Promise.all([api("/api/portal/invoices/"+id),apiBlob(`/api/portal/invoices/${id}/pdf`)]);
-   setInvoice(detail);setInvoiceBlob(blob);
-   // Android has no iframe PDF viewer, so on a phone the file is handed to
-   // the system viewer instead of being framed in a panel that stays blank.
-   if(canPreviewPdfInline()){if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoicePdfUrl(URL.createObjectURL(blob))}
-   else saveBlob(blob,`TALCO-Invoice-${sourceDisplay(detail.voucher_no)}.pdf`);
- }catch(e){setError(`Invoice PDF preview failed: ${(e as Error).message}`)}};
- const closeInvoice=()=>{if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoicePdfUrl("");setInvoiceBlob(null);setInvoice(null)};
+   const detail=await api("/api/portal/invoices/"+id);
+   setInvoice(detail);setInvoiceBlob(null);
+   if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);
+   if(canPreviewPdfInline()){
+     const blob=await apiBlob(`/api/portal/invoices/${id}/pdf`);
+     setInvoiceBlob(blob);setInvoicePdfUrl(URL.createObjectURL(blob));
+   } else {
+     // A phone browser cannot render a PDF inside the app, so it gets the same
+     // invoice as HTML. The download button still hands over the real PDF.
+     const markup=await apiText(`/api/portal/invoices/${id}/preview`);
+     setInvoiceHtml(markup);
+   }
+ }catch(e){setError(`Invoice preview failed: ${(e as Error).message}`)}};
+ const closeInvoice=()=>{if(invoicePdfUrl)URL.revokeObjectURL(invoicePdfUrl);setInvoicePdfUrl("");setInvoiceBlob(null);setInvoiceHtml("");setInvoice(null)};
  const printInvoice=()=>{const frame=document.getElementById("official-invoice-preview") as HTMLIFrameElement|null;frame?.contentWindow?.focus();frame?.contentWindow?.print()};
  const showReceipt=async(id:number)=>{try{setError("");
    const blob=await apiBlob(`/api/portal/receipts/${id}/pdf`);
@@ -58,25 +64,21 @@ export default function PortalPage({initialAccountId,initialTab="statement"}:{in
    <div className="mt-6 grid gap-4 md:grid-cols-3"><Card label={balanceLabel(dashboard.outstanding)} value={formatMoney(dashboard.outstanding)} tone={Number(dashboard.outstanding)<0?"credit":Number(dashboard.outstanding)>0?"due":undefined} detail="Based on the entries in this statement"/><Card label="Opening balance" value={dashboard.opening_date?formatMoney(dashboard.opening_balance):"Not entered"} detail={dashboard.opening_date?balanceLabel(dashboard.opening_balance)+" · "+formatDate(dashboard.opening_date):"No starting balance has been recorded"}/><Card label="Latest bill" value={dashboard.last_bill?formatMoney(dashboard.last_bill.amount):"No bills yet"} detail={dashboard.last_bill?formatDate(dashboard.last_bill.date):"In this statement"}/></div>
    {dashboard.scope_note&&<p className="mt-4 text-sm text-amber-200">{dashboard.scope_note}</p>}
    {dashboard.opening_date?<p className="mt-4 text-sm text-slate-400">Statement starts on {formatDate(dashboard.opening_date)}. Earlier entries are available under All bills and All payments.</p>:!dashboard.scope_note&&<p className="no-print mt-4 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">No opening balance has been entered. The balance shown uses only the bills and payments recorded here.</p>}
-   <nav aria-label="Statement views" className="no-print mb-4 mt-6 flex flex-wrap gap-2">{([["statement","Statement"],["invoices","All bills"],["receipts","All payments"]] as [Tab,string][]).map(([key,label])=><button key={key} aria-current={tab===key?"page":undefined} onClick={()=>setTab(key)} className={"rounded-xl px-4 py-2 "+(tab===key?"bg-[var(--erp-primary)] font-bold text-slate-950":"bg-slate-800 text-slate-300")}>{label}</button>)}{tab==="statement"&&<button onClick={()=>printView("ledger")} className="ui-action ui-action-print">Print / Save PDF</button>}</nav>
+   <nav aria-label="Statement views" className="no-print mb-4 mt-6 flex flex-wrap gap-2">{([["statement","Statement"],["invoices","All bills"],["receipts","All payments"]] as [Tab,string][]).map(([key,label])=><button key={key} aria-current={tab===key?"page":undefined} onClick={()=>setTab(key)} className={"rounded-xl px-4 py-2 "+(tab===key?"bg-[var(--erp-primary)] font-bold text-slate-950":"bg-slate-800 text-slate-300")}>{label}</button>)}{tab==="statement"&&<button onClick={()=>printView("ledger")} className="btn btn-sm btn-secondary">Print / Save PDF</button>}</nav>
    {tab==="statement"?<><p className="no-print mb-4 text-sm text-slate-400">Charges increase the amount due. Payments reduce it. Extra payments appear as advance / credit.</p><StatementTable rows={ledger}/></>:<HistoryTable rows={history} kind={tab==="invoices"?"invoice":"receipt"} onView={tab==="invoices"?showInvoice:showReceipt}/>}
   </>}
   {invoice&&<div className="no-print fixed inset-0 z-50 flex flex-col bg-slate-950/90 p-2 sm:p-4">
    <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 rounded-t-xl bg-white p-3 shadow-xl">
     <div className="mr-auto min-w-0"><b className="block truncate text-slate-900">Tax Invoice · {sourceDisplay(invoice.voucher_no)}</b><span className="text-xs text-slate-500">{invoice.account} · {formatDate(invoice.date)}</span></div>
-    <button onClick={downloadInvoice} className="ui-action ui-action-print">Download PDF</button>
-    {invoicePdfUrl&&<button onClick={printInvoice} className="ui-action ui-action-print">Print Invoice</button>}
+    <button onClick={downloadInvoice} className="btn btn-sm btn-primary">Download PDF</button>
+    {(invoicePdfUrl||invoiceHtml)&&<button onClick={printInvoice} className="btn btn-sm btn-secondary">Print Invoice</button>}
     <button onClick={closeInvoice} className="btn btn-md btn-secondary">Close</button>
    </div>
    <div className="mx-auto min-h-0 w-full max-w-5xl flex-1 overflow-hidden rounded-b-xl bg-slate-200 shadow-xl">
     {invoicePdfUrl
      ?<iframe id="official-invoice-preview" title="Official tax invoice preview" src={invoicePdfUrl} className="h-full min-h-[70vh] w-full border-0 bg-white"/>
-     :invoiceBlob
-      ?<div className="grid h-full min-h-[40vh] place-items-center p-6 text-center"><div>
-        <p className="font-semibold text-slate-800">The invoice has been saved to this device.</p>
-        <p className="mt-2 text-sm text-slate-600">Phones cannot show a PDF inside the app, so open it from your Downloads or notification tray.</p>
-        <button onClick={downloadInvoice} className="ui-action ui-action-print mt-4">Save it again</button>
-       </div></div>
+     :invoiceHtml
+      ?<iframe id="official-invoice-preview" title="Official tax invoice preview" srcDoc={invoiceHtml} className="h-full min-h-[70vh] w-full border-0 bg-white"/>
       :<div className="grid h-full place-items-center text-slate-600">Preparing official invoice…</div>}
    </div>
   </div>}

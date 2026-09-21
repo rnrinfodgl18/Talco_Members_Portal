@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.models.auth import AuthToken, ROLES, User
 from app.routers.user_access import LedgerGrant, set_grants, validate_grants
-from app.security import (SESSION_HOURS, consume_token, current_user, hash_password, issue_token,
+from app.security import (SESSION_HOURS, as_utc, consume_token, current_user, hash_password, issue_token,
                           require_roles, token_user, verify_password)
 from app.services.notifications import send_email
 from app.services.whatsapp import normalize_phone, send_whatsapp
@@ -231,7 +231,7 @@ def request_phone_verification(user: User = Depends(current_user), session: Sess
     now = datetime.now(timezone.utc)
     latest = session.scalar(select(AuthToken).where(AuthToken.user_id == user.id,
         AuthToken.purpose == "verify_phone").order_by(AuthToken.created_at.desc()))
-    if latest and latest.created_at and (now - latest.created_at.replace(tzinfo=timezone.utc)).total_seconds() < 60:
+    if latest and latest.created_at and (now - as_utc(latest.created_at)).total_seconds() < 60:
         raise HTTPException(429, "Wait one minute before requesting another code")
     session.query(AuthToken).filter(AuthToken.user_id == user.id, AuthToken.purpose == "verify_phone",
                                     AuthToken.used_at.is_(None)).update({"used_at": now})
@@ -256,7 +256,7 @@ def confirm_phone_verification(request: PhoneCode, user: User = Depends(current_
     token = session.scalar(select(AuthToken).where(AuthToken.user_id == user.id,
         AuthToken.token_hash == digest, AuthToken.purpose == "verify_phone"))
     now = datetime.now(timezone.utc)
-    if not token or token.used_at or token.expires_at.replace(tzinfo=timezone.utc) <= now:
+    if not token or token.used_at or as_utc(token.expires_at) <= now:
         raise HTTPException(400, "The verification code is invalid or has expired")
     token.used_at = now
     user.phone_verified_at = now

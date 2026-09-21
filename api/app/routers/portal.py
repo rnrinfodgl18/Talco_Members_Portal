@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import HTMLResponse
 from sqlalchemy import Numeric, cast, func, literal, select, union_all
 from sqlalchemy.orm import Session
 
@@ -9,7 +10,7 @@ from app.models.auth import User
 from app.models.entities import ChargeHead, Invoice, InvoiceRevision, Party, Receipt, Tannery, TanneryPartyLink
 from app.security import current_user
 from app.services.scope import scoped_query, user_scope
-from app.services.invoice_pdf import invoice_pdf, receipt_pdf
+from app.services.invoice_pdf import invoice_html, invoice_pdf, receipt_pdf
 
 router = APIRouter(prefix='/api/portal', tags=['portal'])
 
@@ -156,6 +157,25 @@ def invoice_detail(invoice_id: int, user: User = Depends(current_user), session:
             'revisions': [{'date': row.revised_at.isoformat(), 'reason': row.reason,
                            'revised_by': row.revised_by} for row in revisions]}
 
+
+
+@router.get('/invoices/{invoice_id}/preview', response_class=HTMLResponse)
+def invoice_preview(invoice_id: int, user: User = Depends(current_user), session: Session = Depends(get_db)):
+    """The same invoice as HTML.
+
+    A phone browser has no PDF viewer it can render inside the app, so the
+    member would otherwise have to download the file to look at a bill. This is
+    the identical layout WeasyPrint prints, served as a page instead.
+    """
+    existing = session.get(Invoice, invoice_id)
+    if not existing:
+        raise HTTPException(404, 'Invoice not found')
+    found = session.scalar(scoped_query(select(Invoice).where(Invoice.id == invoice_id,
+        Invoice.is_cancelled.is_(False)), Invoice, user))
+    if not found:
+        raise HTTPException(403, 'Invoice is outside your account access')
+    return HTMLResponse(invoice_html(session, found),
+                        headers={'Cache-Control': 'private, no-store'})
 
 
 @router.get('/invoices/{invoice_id}/pdf')

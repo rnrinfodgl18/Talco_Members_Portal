@@ -490,3 +490,18 @@ button.entity-row:hover { background:var(--erp-sunken); }
 .entity-row .who b { display:block; font-size:14px; font-weight:600; color:var(--erp-text); }
 .entity-row .who span { font-size:12.5px; color:var(--erp-muted); }
 .entity-row .amt { font-family:"JetBrains Mono",ui-monospace,monospace; font-size:14px; font-weight:600; text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+/* A notice you have not read should be obvious before you open it. */
+.notice-unread { border-color:var(--erp-primary); background:var(--erp-primary-soft); }
+.notice-unread > button b, .notice-unread > button > span:nth-child(2) b { color:var(--erp-text); }
+.notice-read { border-color:var(--erp-border); background:var(--erp-surface); }
+.notice-read > button { opacity:.86; }
+.notice-unread .border-t, .notice-read .border-t { border-color:var(--erp-border) !important; }
+.notice-unread > div { background:var(--erp-surface); }
+
+/* A notice you have not read should be obvious before you open it. */
+.notice-unread { border-color:var(--erp-primary); background:var(--erp-primary-soft); }
+.notice-read { border-color:var(--erp-border); background:var(--erp-surface); }
+.notice-read > button { opacity:.88; }
+.notice-unread > div, .notice-read > div { background:var(--erp-surface); }
+.notice-unread .border-t, .notice-read .border-t { border-color:var(--erp-border) !important; }

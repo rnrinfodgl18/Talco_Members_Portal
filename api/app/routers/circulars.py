@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import AuditLog, Circular, CircularRead, CircularRecipient
 from app.models.auth import User
-from app.security import current_user, require_roles
+from app.security import as_utc, current_user, require_roles
 from app.services.circular_audience import AUDIENCES, PORTAL_ROLES as AUDIENCE_ROLES, resolve
 from app.services.notifications import deliver_notifications, notify_users
 
@@ -32,7 +32,7 @@ def _visible(session: Session, user: User, circular_id: int) -> Circular:
     if user.role in {"talco_admin", "talco_staff"}:
         return row
     now = datetime.now(timezone.utc)
-    if row.status != "published" or not row.published_at or row.published_at.replace(tzinfo=timezone.utc) > now:
+    if row.status != "published" or not row.published_at or as_utc(row.published_at) > now:
         raise HTTPException(404, "Circular not found")
     if row.expires_on and row.expires_on < date.today():
         raise HTTPException(404, "Circular not found")

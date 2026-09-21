@@ -15,6 +15,22 @@ bearer = HTTPBearer(auto_error=False)
 SESSION_HOURS = 24 * 365
 
 
+
+def as_utc(value: datetime | None) -> datetime | None:
+    """Normalise a stored timestamp to UTC.
+
+    The timestamp columns are DateTime(timezone=True): PostgreSQL returns an
+    aware value in the server's zone (Asia/Kolkata here), while SQLite returns
+    a naive one. Calling .replace(tzinfo=utc) on the aware value relabelled
+    +05:30 as UTC and pushed it 5.5 hours into the future, which made a
+    just-published circular unreachable and tokens outlive their expiry.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
 def hash_password(password: str) -> str:
     if len(password) < 8:
         raise ValueError("Password must be at least 8 characters")
@@ -47,7 +63,7 @@ def token_user(session: Session, raw: str, purposes: set[str]) -> tuple[AuthToke
     token = session.scalar(select(AuthToken).where(AuthToken.token_hash == digest,
                                                     AuthToken.purpose.in_(purposes)))
     now = datetime.now(timezone.utc)
-    if not token or token.used_at or token.expires_at.replace(tzinfo=timezone.utc) <= now:
+    if not token or token.used_at or as_utc(token.expires_at) <= now:
         raise HTTPException(400, "This link is invalid or has expired")
     user = session.get(User, token.user_id)
     if not user or not user.active:
@@ -69,14 +85,14 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
     digest = hashlib.sha256(credentials.credentials.encode()).hexdigest()
     token = session.scalar(select(AuthToken).where(AuthToken.token_hash == digest, AuthToken.purpose == "session"))
     now = datetime.now(timezone.utc)
-    if not token or token.used_at or token.expires_at.replace(tzinfo=timezone.utc) <= now:
+    if not token or token.used_at or as_utc(token.expires_at) <= now:
         raise HTTPException(401, "Session is invalid or expired")
     user = session.get(User, token.user_id)
     if not user or not user.active:
         raise HTTPException(401, "Account is inactive")
     if user.must_set_password:
         raise HTTPException(403, "Password setup required")
-    if token.expires_at.replace(tzinfo=timezone.utc) < now + timedelta(days=30):
+    if as_utc(token.expires_at) < now + timedelta(days=30):
         token.expires_at = now + timedelta(hours=SESSION_HOURS)
         session.commit()
     return user

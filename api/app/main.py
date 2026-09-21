@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.database import database_status
 from app.db import SessionLocal
 from app.models.auth import AuthToken, User
+from app.security import as_utc
 from app.routers.accounts import router as accounts_router
 from app.routers.user_access import router as user_access_router
 from app.routers.auth import router as auth_router
@@ -45,7 +46,7 @@ async def protect_administration(request, call_next):
                                                         AuthToken.purpose == "session",
                                                         AuthToken.used_at.is_(None)))
         now = datetime.now(timezone.utc)
-        if not token or token.expires_at.replace(tzinfo=timezone.utc) <= now:
+        if not token or as_utc(token.expires_at) <= now:
             return JSONResponse({"detail": "Session is invalid or expired"}, status_code=401)
         user = session.get(User, token.user_id)
         if not user or not user.active or user.must_set_password:

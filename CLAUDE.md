@@ -24,7 +24,7 @@ Backend: Python 3.12, FastAPI, SQLAlchemy, Alembic, PostgreSQL 16, WeasyPrint an
 - api/app/models/ — database models.
 - api/app/routers/ — API endpoints.
 - api/app/services/import_parser.py — Excel/XML import parser.
-- api/app/services/invoice_pdf.py — Tally-style invoice and receipt PDFs.
+- api/app/services/invoice_pdf.py — invoice_html builds the markup, invoice_pdf prints it. One layout serves both the PDF and the phone preview.
 - api/app/services/scope.py — shared member/account access scoping, including the lessee lease window.
 - api/app/services/notifications.py — email (with attachments) and push delivery.
 - api/app/services/bill_dispatch.py — sends posted bills by email and WhatsApp.
@@ -46,7 +46,7 @@ Frontend: React, TypeScript, Vite, Tailwind utilities, shared CSS tokens and PWA
 - web/src/SettingsPage.tsx — profile/company/SMTP/WhatsApp settings.
 - web/src/styles.css — the interface kit. One :root owns every colour; .btn (three sizes, four variants) owns every button. Legacy cyan and teal mappings are gone because those classes no longer exist in any component; only the slate-to-token mappings remain, and they are a compatibility layer, not a place to add colours.
 - web/src/theme.ts — admin-editable theme defaults. They must stay equal to the :root values in styles.css, since applyTheme writes the same custom properties at runtime.
-- web/public/sw.js — PWA cache; current key talco-shell-v13.
+- web/public/sw.js — PWA cache; current key talco-shell-v14.
 
 ## 3. Completed functionality
 
@@ -136,7 +136,7 @@ Current migration: 0020_circular_audience_roles (head).
 
 Latest verification:
 
-- Backend: 118 tests passed.
+- Backend: 120 tests passed.
 - Frontend TypeScript/Vite production build passed.
 - Tally invoice generated and rendered for visual A4 inspection.
 - Production API/web/database containers healthy.
@@ -153,6 +153,9 @@ Latest verification:
 7. Never overwrite the VPS .env file.
 8. PostgreSQL and API remain internal; only the web gateway is published.
 9. Keep globally unique container names on the shared office network.
+9a. Never call .replace(tzinfo=...) on a value read from a DateTime(timezone=True)
+   column. PostgreSQL returns it aware in the server zone, so replacing the
+   offset shifts the value; use as_utc() in api/app/security.py.
 10. Never delete production data for testing.
 11. Do not commit the untracked output/ directory.
 12. Preserve mobile/PWA behavior.
@@ -178,7 +181,7 @@ Backend verification:
     docker compose build api
     docker compose run --rm api pytest -q
 
-Current expected result: 118 passed.
+Current expected result: 120 passed.
 
 Frontend verification:
 
@@ -281,7 +284,7 @@ SMTP and WhatsApp credentials are stored through Admin Settings in PostgreSQL. S
 - /api/users — user account access.
 - /api/imports — Excel/XML review/post/corrections.
 - /api/mappings — alias binding.
-- /api/portal — ledger/invoice/receipt/PDF.
+- /api/portal — ledger/invoice/receipt/PDF, plus /invoices/{id}/preview which serves the same invoice as HTML for phones.
 - /api/circulars — notice board/attachments/read/pagination.
 - /api/notifications — notification state/subscriptions/logs.
 - /api/settings — profile/company/logo/SMTP/WhatsApp.

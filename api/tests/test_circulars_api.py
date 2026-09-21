@@ -77,3 +77,51 @@ def test_invalid_recipients_and_attachments_are_rejected(master_api):
         data={"title":"Unsafe file", "content":"Message", "audience":"all", "recipient_ids":"[]"},
         files={"attachment":("script.html", b"<script>", "text/html")})
     assert bad.status_code == 422
+
+
+def test_as_utc_keeps_a_non_utc_offset_instead_of_relabelling_it():
+    """The production bug this pins.
+
+    published_at is DateTime(timezone=True). PostgreSQL returns it aware, in the
+    container's zone (Asia/Kolkata), while SQLite returns it naive - which is why
+    no test caught this. The old code called .replace(tzinfo=utc) on the aware
+    value, relabelling 07:35+05:30 as 07:35 UTC and pushing it 5.5 hours into the
+    future. For those 5.5 hours a circular appeared on the notice board, because
+    the list query compares in SQL, but its attachment 404'd, because visibility
+    is checked in Python.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.security import as_utc
+
+    india = timezone(timedelta(hours=5, minutes=30))
+    published = datetime(2026, 9, 21, 7, 35, tzinfo=india)
+    assert as_utc(published) == datetime(2026, 9, 21, 2, 5, tzinfo=timezone.utc)
+    assert as_utc(published) < datetime.now(timezone.utc)
+
+    # A naive value is still read as UTC, which is what SQLite hands back.
+    assert as_utc(datetime(2026, 9, 21, 2, 5)) == datetime(2026, 9, 21, 2, 5, tzinfo=timezone.utc)
+    assert as_utc(None) is None
+
+
+def test_a_published_circular_serves_its_attachment_immediately(master_api):
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from app.models import Circular
+    from app.models.auth import User
+
+    client, headers, factory = master_api
+    with factory() as session:
+        admin = session.scalar(select(User).where(User.email == "talco_admin@test.local"))
+        row = Circular(title="Pump B shutdown", content="Maintenance on Sunday",
+                       audience="all", status="published", created_by=admin.id,
+                       attachment_name="notice.pdf", attachment_mime="application/pdf",
+                       attachment_data=b"%PDF-fake",
+                       published_at=datetime.now(timezone.utc))
+        session.add(row); session.commit()
+        circular_id = row.id
+    fetched = client.get(f"/api/circulars/{circular_id}/attachment", headers=headers["member"])
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.content == b"%PDF-fake"

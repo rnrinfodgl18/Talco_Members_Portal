@@ -51,3 +51,10 @@ export function saveBlob(blob: Blob, filename: string) {
 /** True where a PDF cannot be shown inline: Android has no iframe PDF viewer. */
 export const canPreviewPdfInline = () =>
   typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+
+/** Fetch a text endpoint (an HTML invoice preview) through apiUrl. */
+export async function apiText(path: string): Promise<string> {
+  const response = await fetch(`${apiUrl}${path}`);
+  if (!response.ok) throw new Error(`Request failed (${response.status})`);
+  return response.text();
+}
