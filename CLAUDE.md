@@ -46,7 +46,7 @@ Frontend: React, TypeScript, Vite, Tailwind utilities, shared CSS tokens and PWA
 - web/src/SettingsPage.tsx — profile/company/SMTP/WhatsApp settings.
 - web/src/styles.css — the interface kit. One :root owns every colour; .btn (three sizes, four variants) owns every button. Legacy cyan and teal mappings are gone because those classes no longer exist in any component; only the slate-to-token mappings remain, and they are a compatibility layer, not a place to add colours.
 - web/src/theme.ts — admin-editable theme defaults. They must stay equal to the :root values in styles.css, since applyTheme writes the same custom properties at runtime.
-- web/public/sw.js — PWA cache; current key talco-shell-v14.
+- web/public/sw.js — PWA cache; current key talco-shell-v15.
 
 ## 3. Completed functionality
 
@@ -121,7 +121,7 @@ UI/PWA:
 - A phone cannot render a PDF in an iframe, so invoices and receipts are saved to the device there and framed only on a wide screen.
 - Push records why it did not deliver (no VAPID keys, or no device enabled), instead of failing silently.
 - Theme Designer hidden; Help page removed.
-- Smartiva.in/FII Tech.in footer remains.
+- Footer credits FII Tech.in only.
 
 ## 4. Production baseline
 
