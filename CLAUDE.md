@@ -44,9 +44,9 @@ Frontend: React, TypeScript, Vite, Tailwind utilities, shared CSS tokens and PWA
 - web/src/CircularChannels.tsx — circular delivery switches in Settings.
 - web/src/CircularsPage.tsx — circular and notice board.
 - web/src/SettingsPage.tsx — profile/company/SMTP/WhatsApp settings.
-- web/src/styles.css — DINTEC UI system and legacy-colour normalization.
-- web/src/theme.ts — active theme tokens.
-- web/public/sw.js — PWA cache; current key talco-shell-v12.
+- web/src/styles.css — the interface kit. One :root owns every colour; .btn (three sizes, four variants) owns every button. Legacy cyan and teal mappings are gone because those classes no longer exist in any component; only the slate-to-token mappings remain, and they are a compatibility layer, not a place to add colours.
+- web/src/theme.ts — admin-editable theme defaults. They must stay equal to the :root values in styles.css, since applyTheme writes the same custom properties at runtime.
+- web/public/sw.js — PWA cache; current key talco-shell-v13.
 
 ## 3. Completed functionality
 
@@ -112,8 +112,9 @@ UI/PWA:
 
 - Separate admin and member dashboards.
 - Last Sync on from latest posted import.
-- DINTEC navy/dark-sidebar/light-canvas theme.
-- Old hardcoded teal/cyan/blue actions mapped to active theme tokens.
+- Navy shell with a navy-anchored action palette: azure #1f5fd0 primary, jade #0b7a63 positive, clay #b42318 negative, amber #9a6100 pending. Each clears 4.5:1 against the text on it; the cyan they replaced sat at 1.81:1.
+- Buttons come from .btn plus a size and a variant. Size is chosen by the weight of the action: btn-lg for the one thing a page exists to do, btn-md for form submits, btn-sm for a row action. Never write a bespoke padding-and-colour button.
+- Dashboard metrics carry a toned icon, tabular numerals, and a severity stripe (.is-attention) on the one figure that needs a decision.
 - Mobile drawer, bottom navigation and card-style tables.
 - Installable PWA and persistent session.
 - Binary endpoints go through apiBlob/saveBlob in web/src/api.ts. Never fetch an /api path without the apiUrl prefix, never click a detached anchor, and never revoke an object URL straight after the click: Android drops all three.

@@ -37,7 +37,7 @@ export default function ReportsPage(){
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><h1 className="text-2xl font-bold lg:text-3xl">Outstanding summary</h1>
         <p className="mt-1 text-sm text-slate-500">Opening balance plus bills raised, less payments received, for every ledger account.</p></div>
-      <button onClick={download} className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">Download CSV</button>
+      <button onClick={download} className="btn btn-md btn-primary">Download CSV</button>
     </div>
     {error&&<p className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
     {report&&<>
